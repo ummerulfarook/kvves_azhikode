@@ -1,0 +1,49 @@
+# Database backups
+/backups/
+
+# Virtual Environments
+venv/
+env/
+.venv/
+.env/
+
+# Python caching & bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+backend/logs/
+*.log
+
+# Local databases
+backend/db.sqlite3
+
+# Environment configurations (secrets)
+backend/.env
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Frontend Node packages and builds
+frontend/node_modules/
+frontend/dist/
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/.eslintcache
+
+# Editor & IDE configs
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# OS Files
+.DS_Store
+Thumbs.db
