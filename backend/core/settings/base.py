@@ -5,9 +5,14 @@ Django settings base configuration for KVVA Management System.
 import os
 from pathlib import Path
 from datetime import timedelta
-from decouple import config
+from decouple import Config, RepositoryEnv
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+env_path = BASE_DIR / '.env'
+if env_path.exists():
+    config = Config(RepositoryEnv(str(env_path)))
+else:
+    from decouple import config
 
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-change-this-in-production')
 

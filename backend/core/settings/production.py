@@ -4,7 +4,6 @@ Uses PostgreSQL. Set all values in the .env file.
 """
 
 from .base import *
-from decouple import config
 
 DEBUG = config('DEBUG', default=False, cast=bool)
 
