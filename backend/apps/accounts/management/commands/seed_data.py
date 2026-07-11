@@ -26,9 +26,10 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS('Cleared.'))
 
         with transaction.atomic():
-            # Create admin
-            if not User.objects.filter(username='admin').exists():
-                admin = User.objects.create_superuser(
+            # Create/Reset admin
+            admin_user = User.objects.filter(username='admin').first()
+            if not admin_user:
+                admin_user = User.objects.create_superuser(
                     username='admin',
                     email='admin@kvva.local',
                     password='kvva@admin2024',
@@ -36,12 +37,18 @@ class Command(BaseCommand):
                     last_name='KVVA',
                     role='admin',
                 )
-                self.stdout.write(self.style.SUCCESS(f'Created admin user: admin / kvva@admin2024'))
+                self.stdout.write(self.style.SUCCESS('Created admin user: admin / kvva@admin2024'))
             else:
-                self.stdout.write(self.style.WARNING('Admin user already exists, skipped.'))
+                admin_user.set_password('kvva@admin2024')
+                admin_user.is_superuser = True
+                admin_user.is_staff = True
+                admin_user.role = 'admin'
+                admin_user.save()
+                self.stdout.write(self.style.SUCCESS('Reset existing admin password to: kvva@admin2024'))
 
-            # Create staff user
-            if not User.objects.filter(username='staff').exists():
+            # Create/Reset staff user
+            staff_user = User.objects.filter(username='staff').first()
+            if not staff_user:
                 User.objects.create_user(
                     username='staff',
                     email='staff@kvva.local',
@@ -51,9 +58,15 @@ class Command(BaseCommand):
                     role='staff',
                 )
                 self.stdout.write(self.style.SUCCESS('Created staff user: staff / kvva@staff2024'))
+            else:
+                staff_user.set_password('kvva@staff2024')
+                staff_user.role = 'staff'
+                staff_user.save()
+                self.stdout.write(self.style.SUCCESS('Reset existing staff password to: kvva@staff2024'))
 
-            # Create viewer user
-            if not User.objects.filter(username='viewer').exists():
+            # Create/Reset viewer user
+            viewer_user = User.objects.filter(username='viewer').first()
+            if not viewer_user:
                 User.objects.create_user(
                     username='viewer',
                     email='viewer@kvva.local',
@@ -63,6 +76,11 @@ class Command(BaseCommand):
                     role='viewer',
                 )
                 self.stdout.write(self.style.SUCCESS('Created viewer user: viewer / kvva@view2024'))
+            else:
+                viewer_user.set_password('kvva@view2024')
+                viewer_user.role = 'viewer'
+                viewer_user.save()
+                self.stdout.write(self.style.SUCCESS('Reset existing viewer password to: kvva@view2024'))
 
         self.stdout.write(self.style.SUCCESS('\n[SUCCESS] Seeding complete!'))
         self.stdout.write('   Login at: http://localhost:3000/login')
