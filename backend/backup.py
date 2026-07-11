@@ -11,7 +11,8 @@ try:
     if os.path.exists(env_path):
         with open(env_path, 'r') as f:
             env_content = f.read()
-        if 'DEBUG=True' in env_content.replace(' ', ''):
+        cleaned_env = env_content.replace(' ', '').replace('\r', '').lower()
+        if 'debug=true' in cleaned_env:
             os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings.development')
         else:
             os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings.production')
