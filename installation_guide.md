@@ -164,3 +164,17 @@ To ensure the backend server runs automatically whenever the host machine is tur
 2. Right-click on [schedule_startup.bat](file:///c:/Users/ummer/OneDrive/Desktop/kvva/scripts/schedule_startup.bat) and choose **"Run as Administrator"**.
 3. This creates a task named `KVVES_Backend_Startup` in the Windows Task Scheduler.
 4. **How it runs**: On every system boot/logon, it executes [start_backend_hidden.vbs](file:///c:/Users/ummer/OneDrive/Desktop/kvva/scripts/start_backend_hidden.vbs) which runs the Waitress python server silently in the background (no open terminal window to accidentally close).
+
+---
+
+## 8. Troubleshooting: Create/Reset Administrator Credentials
+
+If you are unable to login with the default `admin` credentials, or if you wish to create a custom administrative account directly:
+
+1. Navigate to the `scripts` folder.
+2. Double-click [create_custom_admin.bat](file:///c:/Users/ummer/OneDrive/Desktop/kvva/scripts/create_custom_admin.bat).
+3. A terminal window will open asking for:
+   * **Username**: Type a new username (e.g. `manager`) and press Enter.
+   * **Password**: Type a secure password and press Enter.
+4. If the username already exists, it will ask if you want to reset its password. Type `y` and type the new password.
+5. This is a secure fallback option that directly writes the new credentials to the active PostgreSQL or SQLite database.
