@@ -178,3 +178,15 @@ If you are unable to login with the default `admin` credentials, or if you wish 
    * **Password**: Type a secure password and press Enter.
 4. If the username already exists, it will ask if you want to reset its password. Type `y` and type the new password.
 5. This is a secure fallback option that directly writes the new credentials to the active PostgreSQL or SQLite database.
+
+---
+
+## 9. Reset to a Fresh Database (Clear All Test Records)
+
+If you have finished testing and want to reset the database to a clean, empty state containing **only the default users** (ready for clean client data entry):
+
+1. Navigate to the `scripts` folder.
+2. Double-click [create_fresh_database.bat](file:///c:/Users/ummer/OneDrive/Desktop/kvva/scripts/create_fresh_database.bat).
+3. Type `y` to confirm.
+4. **SQLite Mode**: This script automatically backs up your existing database as `db.sqlite3.bak`, deletes the database, builds a fresh structure, and seeds the default users (`admin`, `staff`, `viewer`).
+5. **PostgreSQL Mode**: It flushes all tables and seeds the default users (`admin`, `staff`, `viewer`).
