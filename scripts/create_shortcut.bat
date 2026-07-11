@@ -10,22 +10,26 @@ echo ==========================================================
 echo.
 
 set TARGET_VBS=%~dp0launch_app_hidden.vbs
-set SHORTCUT_PATH=%USERPROFILE%\Desktop\KVVES Management System.lnk
 
 echo Creating desktop shortcut...
 echo Target: %TARGET_VBS%
 echo.
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "$WshShell = New-Object -ComObject WScript.Shell; ^
-     $Shortcut = $WshShell.CreateShortcut('%SHORTCUT_PATH%'); ^
-     $Shortcut.TargetPath = 'wscript.exe'; ^
-     $Shortcut.Arguments = '\"%TARGET_VBS%\"'; ^
-     $Shortcut.WorkingDirectory = '%~dp0'; ^
-     $Shortcut.Description = 'Launch KVVES Management System'; ^
-     $Shortcut.Save();"
+:: Create a temporary VBScript to generate the shortcut
+echo Set WshShell = CreateObject("WScript.Shell") > "%temp%\create_shortcut.vbs"
+echo destPath = WshShell.SpecialFolders("Desktop") >> "%temp%\create_shortcut.vbs"
+echo Set Shortcut = WshShell.CreateShortcut(destPath ^& "\KVVES Management System.lnk") >> "%temp%\create_shortcut.vbs"
+echo Shortcut.TargetPath = "wscript.exe" >> "%temp%\create_shortcut.vbs"
+echo Shortcut.Arguments = """%TARGET_VBS%""" >> "%temp%\create_shortcut.vbs"
+echo Shortcut.WorkingDirectory = "%~dp0" >> "%temp%\create_shortcut.vbs"
+echo Shortcut.Description = "Launch KVVES Management System" >> "%temp%\create_shortcut.vbs"
+echo Shortcut.Save >> "%temp%\create_shortcut.vbs"
 
-if %errorlevel% equ 0 (
+cscript //nologo "%temp%\create_shortcut.vbs"
+set CSCRIPT_ERR=%errorlevel%
+del "%temp%\create_shortcut.vbs"
+
+if %CSCRIPT_ERR% equ 0 (
     echo ==========================================================
     echo   SUCCESS: Desktop Shortcut created successfully!
     echo   Double-click the "KVVES Management System" shortcut
