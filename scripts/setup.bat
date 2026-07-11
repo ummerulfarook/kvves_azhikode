@@ -12,9 +12,23 @@ echo =====================================================
 
 :: ─── Backend ─────────────────────────────────────────────
 echo.
-echo [1/6] Installing Python dependencies...
+echo [1/6] Setting up Python virtual environment...
 cd backend
-pip install -r requirements.txt
+if not exist venv (
+    echo Creating virtual environment...
+    python -m venv venv
+)
+if exist venv\Scripts\python.exe (
+    echo Using Virtual Environment...
+    set PYTHON_EXE=venv\Scripts\python.exe
+) else (
+    echo WARNING: Virtual environment creation failed. Falling back to global Python.
+    set PYTHON_EXE=python
+)
+
+echo Installing dependencies...
+%PYTHON_EXE% -m pip install --upgrade pip
+%PYTHON_EXE% -m pip install -r requirements.txt
 if errorlevel 1 ( echo FAILED: pip install && pause && exit /b 1 )
 
 echo.
@@ -36,16 +50,16 @@ if %errorlevel% equ 0 (
     set DJANGO_SETTINGS_MODULE=core.settings.production
     echo Running migrations in PRODUCTION mode with PostgreSQL...
 )
-python manage.py migrate
+%PYTHON_EXE% manage.py migrate
 if errorlevel 1 ( echo FAILED: migrate && pause && exit /b 1 )
 
 echo.
 echo [4/6] Creating initial admin user...
-python manage.py seed_data
+%PYTHON_EXE% manage.py seed_data
 
 echo.
 echo [5/6] Collecting static files...
-python manage.py collectstatic --noinput
+%PYTHON_EXE% manage.py collectstatic --noinput
 
 :: ─── Frontend ────────────────────────────────────────────
 echo.
