@@ -80,12 +80,16 @@ def validate_member_row(row, row_num, existing_member_nos):
     else:
         data['membership_type'] = membership_type
 
-    joining_date = parse_date(row.get('joining_date'))
-    if not joining_date:
-        errors.append(f"Row {row_num}: joining_date is required and must be DD/MM/YYYY.")
+    joining_date_val = row.get('joining_date')
+    from django.utils import timezone
+    if not joining_date_val:
+        joining_date = timezone.localdate()
+        data['joining_date'] = joining_date
     else:
-        from django.utils import timezone
-        if joining_date > timezone.localdate():
+        joining_date = parse_date(joining_date_val)
+        if not joining_date:
+            errors.append(f"Row {row_num}: joining_date format invalid. Must be DD/MM/YYYY. Got: '{joining_date_val}'")
+        elif joining_date > timezone.localdate():
             errors.append(f"Row {row_num}: joining_date cannot be in the future.")
         else:
             data['joining_date'] = joining_date

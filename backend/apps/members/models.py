@@ -39,7 +39,8 @@ class Member(models.Model):
     pan_number = models.CharField(max_length=10, blank=True)
     photo = models.ImageField(upload_to='members/photos/', null=True, blank=True)
     membership_type = models.CharField(max_length=20, choices=MEMBERSHIP_TYPES, default='regular')
-    joining_date = models.DateField()
+    joining_date = models.DateField(default=timezone.now)
+    masavari_amount = models.DecimalField(max_digits=10, decimal_places=2, default=50.00)
     status = models.CharField(max_length=20, choices=STATUS, default='active')
     remarks = models.TextField(blank=True)
     created_by = models.ForeignKey(

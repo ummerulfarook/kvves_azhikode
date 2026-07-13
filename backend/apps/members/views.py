@@ -400,9 +400,8 @@ class MemberMasavariView(APIView):
         payments = MasavariPayment.objects.filter(member=member).order_by('-year', '-month')
         payments_data = MasavariPaymentSerializer(payments, many=True).data
 
-        # Determine standard rate from last paid payment
-        last_paid = payments.filter(status='paid').first()
-        default_amount = last_paid.amount if last_paid else Decimal('50.00')
+        # Determine standard rate from member profile
+        default_amount = member.masavari_amount
 
         # 2. Compute all months from joining_date to current month
         today = timezone.now().date()
@@ -554,8 +553,7 @@ class MemberClearDuesView(APIView):
 
             # 4. Clear pending masavari payments
             payments_qs = MasavariPayment.objects.filter(member=member)
-            last_paid = payments_qs.filter(status='paid').order_by('-year', '-month').first()
-            default_amount = last_paid.amount if last_paid else Decimal('50.00')
+            default_amount = member.masavari_amount
 
             start_date = member.joining_date
             curr = start_date.replace(day=1)
@@ -611,16 +609,26 @@ class MemberClearMasavariView(APIView):
 
         payment_mode = request.data.get('payment_mode', 'cash')
         receipt_no = request.data.get('receipt_no', '')
+        clear_till_str = request.data.get('clear_till')
         today = timezone.now().date()
+
+        end_date = today
+        if clear_till_str:
+            try:
+                if len(clear_till_str.strip()) == 7: # YYYY-MM
+                    end_date = datetime.datetime.strptime(clear_till_str.strip(), '%Y-%m').date()
+                else:
+                    end_date = datetime.datetime.strptime(clear_till_str.strip(), '%Y-%m-%d').date()
+            except ValueError:
+                pass
 
         with transaction.atomic():
             payments_qs = MasavariPayment.objects.filter(member=member)
-            last_paid = payments_qs.filter(status='paid').order_by('-year', '-month').first()
-            default_amount = last_paid.amount if last_paid else Decimal('50.00')
+            default_amount = member.masavari_amount
 
             start_date = member.joining_date
             curr = start_date.replace(day=1)
-            end = today.replace(day=1)
+            end = end_date.replace(day=1)
             paid_set = set(payments_qs.filter(status='paid').values_list('year', 'month'))
 
             while curr <= end:

@@ -102,7 +102,7 @@ def populate_masavari_payments_up_to(member, paid_till_date_or_str, recorded_by=
             year=curr.year,
             month=curr.month,
             defaults={
-                'amount': Decimal('50.00'),
+                'amount': member.masavari_amount,
                 'due_date': curr + relativedelta(day=5),
                 'paid_date': timezone.now().date(),
                 'status': 'paid',

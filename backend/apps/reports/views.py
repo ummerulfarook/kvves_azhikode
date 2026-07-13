@@ -97,7 +97,7 @@ class DashboardView(APIView):
             paid_masavari.setdefault(p.member_id, set()).add((p.year, p.month))
 
         for m in Member.objects.all():
-            rate = Decimal('50.00')
+            rate = m.masavari_amount
             start_date = m.joining_date
             if not start_date:
                 continue
@@ -401,7 +401,7 @@ class OverdueListView(APIView):
         upcoming_limit = today + relativedelta(months=1)
 
         for m in Member.objects.all():
-            rate = Decimal('50.00')
+            rate = m.masavari_amount
             start_date = m.joining_date
             if not start_date:
                 continue

@@ -343,8 +343,12 @@ const MemberDetailPage = () => {
     setSubmitting(true)
     try {
       const values = await clearMasavariForm.validateFields()
-      await membersApi.clearMemberMasavari(id, values)
-      message.success('All pending Masavari payments cleared!')
+      const payload = {
+        ...values,
+        clear_till: values.clear_till ? values.clear_till.startOf('month').format('YYYY-MM-DD') : null,
+      }
+      await membersApi.clearMemberMasavari(id, payload)
+      message.success('Masavari payments cleared successfully!')
       setClearMasavariModal(false)
       clearMasavariForm.resetFields()
       loadMasavari()
@@ -515,6 +519,7 @@ const MemberDetailPage = () => {
             </Descriptions.Item>
             <Descriptions.Item label="Membership Type"><StatusBadge status={member.membership_type} /></Descriptions.Item>
             <Descriptions.Item label="Joining Date">{formatDate(member.joining_date)}</Descriptions.Item>
+            <Descriptions.Item label="Masavari Monthly Rate">{formatCurrency(member.masavari_amount)}</Descriptions.Item>
             <Descriptions.Item label="Status"><StatusBadge status={member.status} /></Descriptions.Item>
           </Descriptions>
           {member.remarks && (
@@ -1292,7 +1297,7 @@ const MemberDetailPage = () => {
 
       {/* Clear Masavari Modal */}
       <Modal
-        title="Clear All Pending Masavari"
+        title="Clear Pending Masavari Up To Date"
         open={clearMasavariModal}
         onCancel={() => { setClearMasavariModal(false); clearMasavariForm.resetFields() }}
         onOk={handleClearMasavariSubmit}
@@ -1302,8 +1307,11 @@ const MemberDetailPage = () => {
       >
         <Form form={clearMasavariForm} layout="vertical">
           <Text type="warning" style={{ display: 'block', marginBottom: 16 }}>
-            This action will record full payment for all pending Masavari payments from the member's joining date to the current date.
+            This action will record full payment for all pending Masavari payments from the member's joining date up to the selected month.
           </Text>
+          <Form.Item label="Clear Till Month" name="clear_till" initialValue={dayjs()} rules={[{ required: true, message: 'Required' }]}>
+            <DatePicker picker="month" format="MM/YYYY" style={{ width: '100%' }} disabledDate={(d) => d && d.isAfter(dayjs())} />
+          </Form.Item>
           <Form.Item label="Payment Mode" name="payment_mode" initialValue="cash" rules={[{ required: true }]}>
             <Select>
               {PAYMENT_MODE_OPTIONS.map((o) => <Option key={o.value} value={o.value}>{o.label}</Option>)}

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   Form, Input, Select, DatePicker, Upload, Button, Steps, Typography, Row, Col,
-  Divider, Space, message, Card, Descriptions,
+  Divider, Space, message, Card, Descriptions, InputNumber,
 } from 'antd'
 import { UploadOutlined, CheckOutlined, ArrowLeftOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -208,7 +208,7 @@ const AddMemberPage = () => {
         </Form.Item>
       </Col>
       <Col xs={24} md={12}>
-        <Form.Item label="Joining Date" name="joining_date" rules={[{ required: true, message: 'Required' }]}>
+        <Form.Item label="Joining Date" name="joining_date" initialValue={dayjs()} rules={[{ required: true, message: 'Required' }]}>
           <DatePicker id="member-joining-date" style={{ width: '100%' }} format="DD/MM/YYYY"
             disabledDate={(d) => d && d.isAfter(dayjs())} />
         </Form.Item>
@@ -218,6 +218,11 @@ const AddMemberPage = () => {
           <Select id="member-status">
             {MEMBER_STATUS_OPTIONS.map((o) => <Option key={o.value} value={o.value}>{o.label}</Option>)}
           </Select>
+        </Form.Item>
+      </Col>
+      <Col xs={24} md={12}>
+        <Form.Item label="Masavari Monthly Amount (₹)" name="masavari_amount" initialValue={50.00} rules={[{ required: true, message: 'Required' }]}>
+          <InputNumber id="member-masavari-amount" min={0} style={{ width: '100%' }} prefix="₹" />
         </Form.Item>
       </Col>
       {!isEdit && (
@@ -292,6 +297,9 @@ const AddMemberPage = () => {
             </Descriptions.Item>
             <Descriptions.Item label="Masavari Paid Till">
               {v.masavari_paid_till ? v.masavari_paid_till.format('MM/YYYY') : '—'}
+            </Descriptions.Item>
+            <Descriptions.Item label="Masavari Monthly Amount">
+              ₹{v.masavari_amount}
             </Descriptions.Item>
             <Descriptions.Item label="Status">{v.status}</Descriptions.Item>
             <Descriptions.Item label="Remarks" span={2}>{v.remarks || '—'}</Descriptions.Item>
