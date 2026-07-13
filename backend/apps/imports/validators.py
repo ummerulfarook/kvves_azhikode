@@ -93,6 +93,31 @@ def validate_member_row(row, row_num, existing_member_nos):
     dob = parse_date(row.get('date_of_birth'))
     data['date_of_birth'] = dob  # optional
 
+    # Parse and validate masavari_paid_till (supports DD/MM/YYYY, MM/YYYY, and different casings)
+    paid_till_raw = row.get('masavari_paid_till') or row.get('Masavari Paid Till') or row.get('massavari paid till') or row.get('Masavari Paid Till (DD/MM/YYYY)')
+    paid_till = None
+    if paid_till_raw:
+        paid_till_str = str(paid_till_raw).strip()
+        if paid_till_str:
+            paid_till = parse_date(paid_till_str)
+            if not paid_till:
+                # Try parsing MM/YYYY
+                try:
+                    parts = paid_till_str.split('/')
+                    if len(parts) == 2:
+                        month = int(parts[0])
+                        year = int(parts[1])
+                        from datetime import date
+                        paid_till = date(year, month, 1)
+                except ValueError:
+                    pass
+            if not paid_till:
+                errors.append(f"Row {row_num}: masavari_paid_till format invalid. Must be DD/MM/YYYY or MM/YYYY. Got: '{paid_till_raw}'")
+            elif joining_date and paid_till < joining_date:
+                errors.append(f"Row {row_num}: masavari_paid_till cannot be before joining_date.")
+            else:
+                data['masavari_paid_till'] = paid_till
+
     data['remarks'] = str(row.get('remarks', '')).strip()
 
     return data, errors

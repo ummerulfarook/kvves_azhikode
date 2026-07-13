@@ -78,11 +78,16 @@ class MemberImportView(APIView):
             with transaction.atomic():
                 created = []
                 for data in valid_rows:
+                    masavari_paid_till = data.pop('masavari_paid_till', None)
                     member = Member.objects.create(
                         created_by=request.user,
                         **{k: v for k, v in data.items() if v != ''},
                     )
                     created.append(member.member_no)
+                    
+                    if masavari_paid_till:
+                        from apps.members.utils import populate_masavari_payments_up_to
+                        populate_masavari_payments_up_to(member, masavari_paid_till, recorded_by=request.user)
         except Exception as e:
             return Response({'error': True, 'message': f'Import failed: {str(e)}'}, status=500)
 

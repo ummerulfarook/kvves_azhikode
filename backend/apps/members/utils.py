@@ -61,3 +61,53 @@ def check_and_reactivate_member(member):
         member.status = 'active'
         member.remarks = (member.remarks or "") + f"\nAuto-reactivated on {today} after clearing all Masavari dues."
         member.save()
+
+
+def populate_masavari_payments_up_to(member, paid_till_date_or_str, recorded_by=None):
+    """
+    Given a member and a paid-till date/string, automatically create/update MasavariPayment records
+    with status='paid' for all months from joining_date up to the paid-till month/year.
+    """
+    from apps.dues.models import MasavariPayment
+    from dateutil.relativedelta import relativedelta
+    from datetime import datetime
+    from decimal import Decimal
+
+    if not paid_till_date_or_str:
+        return
+
+    # Parse paid_till date
+    if isinstance(paid_till_date_or_str, str):
+        try:
+            if len(paid_till_date_or_str.strip()) == 7: # YYYY-MM
+                paid_till = datetime.strptime(paid_till_date_or_str.strip(), '%Y-%m').date()
+            else:
+                paid_till = datetime.strptime(paid_till_date_or_str.strip(), '%Y-%m-%d').date()
+        except ValueError:
+            return
+    else:
+        paid_till = paid_till_date_or_str
+
+    start_date = member.joining_date
+    if not start_date or start_date > paid_till:
+        return
+
+    curr = start_date.replace(day=1)
+    end = paid_till.replace(day=1)
+
+    while curr <= end:
+        # Check or create paid masavari payment
+        MasavariPayment.objects.update_or_create(
+            member=member,
+            year=curr.year,
+            month=curr.month,
+            defaults={
+                'amount': Decimal('50.00'),
+                'due_date': curr + relativedelta(day=5),
+                'paid_date': timezone.now().date(),
+                'status': 'paid',
+                'remarks': 'Pre-populated cleared dues on member creation/import.',
+                'recorded_by': recorded_by
+            }
+        )
+        curr += relativedelta(months=1)

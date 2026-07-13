@@ -25,6 +25,7 @@ class MemberDetailSerializer(serializers.ModelSerializer):
 
     created_by_name = serializers.SerializerMethodField()
     age = serializers.SerializerMethodField()
+    masavari_paid_till = serializers.DateField(write_only=True, required=False, allow_null=True)
 
     class Meta:
         model = Member
@@ -74,10 +75,27 @@ class MemberDetailSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
+        masavari_paid_till = validated_data.pop('masavari_paid_till', None)
         request = self.context.get('request')
+        recorded_by = None
         if request and request.user.is_authenticated:
             validated_data['created_by'] = request.user
-        return super().create(validated_data)
+            recorded_by = request.user
+        member = super().create(validated_data)
+        if masavari_paid_till:
+            from .utils import populate_masavari_payments_up_to
+            populate_masavari_payments_up_to(member, masavari_paid_till, recorded_by=recorded_by)
+        return member
+
+    def update(self, instance, validated_data):
+        masavari_paid_till = validated_data.pop('masavari_paid_till', None)
+        member = super().update(instance, validated_data)
+        if masavari_paid_till:
+            request = self.context.get('request')
+            recorded_by = request.user if request and request.user.is_authenticated else None
+            from .utils import populate_masavari_payments_up_to
+            populate_masavari_payments_up_to(member, masavari_paid_till, recorded_by=recorded_by)
+        return member
 
 
 class MemberSummarySerializer(serializers.Serializer):

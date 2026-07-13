@@ -5,7 +5,7 @@ export const getMember = (id) => api.get(`/members/${id}/`)
 export const createMember = (data) => api.post('/members/', data)
 export const updateMember = (id, data) => api.put(`/members/${id}/`, data)
 export const patchMember = (id, data) => api.patch(`/members/${id}/`, data)
-export const deleteMember = (id) => api.delete(`/members/${id}/`)
+export const deleteMember = (id, params) => api.delete(`/members/${id}/`, { params })
 export const getMemberSummary = (id) => api.get(`/members/${id}/summary/`)
 export const getMemberActivities = (id, params) => api.get(`/members/${id}/activities/`, { params })
 export const uploadMemberPhoto = (id, formData) =>

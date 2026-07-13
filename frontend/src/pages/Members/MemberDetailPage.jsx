@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 import {
   Tabs, Button, Typography, Space, Card, Row, Col, Statistic, Table, Tag,
   Modal, Form, Input, Select, DatePicker, InputNumber, Descriptions, message,
-  Skeleton, Alert, Divider, Badge, Tooltip,
+  Skeleton, Alert, Divider, Badge, Tooltip, Popconfirm,
 } from 'antd'
 import {
   EditOutlined, UserAddOutlined, PlusOutlined, PrinterOutlined,
   ArrowLeftOutlined, DollarOutlined, CheckCircleOutlined, WarningOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
@@ -63,6 +64,26 @@ const MemberDetailPage = () => {
   const [activityPage, setActivityPage] = useState(1)
   const [dueFilter, setDueFilter] = useState('all')
   const [members, setMembers] = useState([])
+  const [deletingMember, setDeletingMember] = useState(false)
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false)
+
+  const handleDeleteMember = async (hardDelete = false) => {
+    setDeletingMember(true)
+    try {
+      await membersApi.deleteMember(id, { hard_delete: hardDelete })
+      message.success(hardDelete ? 'Member permanently deleted.' : 'Member deactivated successfully.')
+      setDeleteModalVisible(false)
+      navigate('/members')
+    } catch (err) {
+      if (err?.response?.data?.message) {
+        message.error(err.response.data.message)
+      } else {
+        message.error('Failed to delete member.')
+      }
+    } finally {
+      setDeletingMember(false)
+    }
+  }
 
   // Modals
   const [nomineeModal, setNomineeModal] = useState({ open: false, editData: null })
@@ -917,6 +938,11 @@ const MemberDetailPage = () => {
               Edit
             </Button>
           )}
+          {canDelete && (
+            <Button type="primary" danger icon={<DeleteOutlined />} onClick={() => setDeleteModalVisible(true)} id="delete-member-btn">
+              Delete Member
+            </Button>
+          )}
           <ExportButton exportFn={() => exportSingleMember(id)} filename={`member_${member.member_no}.xlsx`}>
             Export Profile
           </ExportButton>
@@ -1358,6 +1384,45 @@ const MemberDetailPage = () => {
             </Text>
           )}
         </Form>
+      </Modal>
+
+      {/* Delete / Deactivate Member Modal */}
+      <Modal
+        title={<span style={{ color: '#ef4444' }}>⚠️ Delete / Deactivate Member</span>}
+        open={deleteModalVisible}
+        onCancel={() => setDeleteModalVisible(false)}
+        footer={null}
+        width={500}
+      >
+        <div style={{ marginBottom: 20 }}>
+          <Text style={{ display: 'block', marginBottom: 12, color: 'var(--color-text-primary)' }}>
+            You are about to delete or deactivate member <strong>{member.full_name} ({member.member_no})</strong>.
+          </Text>
+          <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+            Please select the deletion type below. To avoid losing details, we recommend deactivating the member.
+          </Text>
+          <Divider style={{ margin: '12px 0' }} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Card size="small" hoverable style={{ border: '1px solid #3b82f6', background: 'rgba(59, 130, 246, 0.05)' }}>
+              <div style={{ fontWeight: 600, color: '#3b82f6', marginBottom: 4 }}>Option A: Deactivate Member (Soft Delete)</div>
+              <div style={{ fontSize: 12, color: '#9ba3bc', marginBottom: 8 }}>
+                Marks the member's status as Inactive. <strong>All history, transactions, loans, and welfare records are preserved.</strong>
+              </div>
+              <Button type="primary" style={{ background: '#3b82f6', borderColor: '#3b82f6' }} loading={deletingMember} onClick={() => handleDeleteMember(false)}>
+                Deactivate Member
+              </Button>
+            </Card>
+            <Card size="small" hoverable style={{ border: '1px solid #ef4444', background: 'rgba(239, 68, 68, 0.05)' }}>
+              <div style={{ fontWeight: 600, color: '#ef4444', marginBottom: 4 }}>Option B: Permanently Delete (Hard Delete)</div>
+              <div style={{ fontSize: 12, color: '#9ba3bc', marginBottom: 8 }}>
+                Completely erases the member and all of their history from the database. <strong>This action cannot be undone.</strong> Will fail if the member has active financial records.
+              </div>
+              <Button type="primary" danger loading={deletingMember} onClick={() => handleDeleteMember(true)}>
+                Permanently Delete
+              </Button>
+            </Card>
+          </div>
+        </div>
       </Modal>
     </div>
   )

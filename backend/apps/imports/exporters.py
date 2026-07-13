@@ -151,7 +151,7 @@ def get_member_import_template():
         'member_no', 'full_name', 'full_name_ml', 'date_of_birth',
         'gender', 'phone', 'alternate_phone', 'email', 'address',
         'ward', 'panchayat', 'district', 'pin_code', 'aadhaar_number',
-        'pan_number', 'membership_type', 'joining_date', 'remarks',
+        'pan_number', 'membership_type', 'joining_date', 'masavari_paid_till', 'remarks',
     ]
     ws.append(headers)
     style_header_row(ws)
@@ -162,7 +162,7 @@ def get_member_import_template():
         'DD/MM/YYYY', 'M/F/O', '10 digits', '10 digits (optional)',
         'email@example.com', 'Full address', 'Ward name',
         'Panchayat name', 'Kannur', '6 digits', '12 digits (optional)',
-        'ABCDE1234F (optional)', 'regular/associate/honorary', 'DD/MM/YYYY', 'Optional remarks',
+        'ABCDE1234F (optional)', 'regular/associate/honorary', 'DD/MM/YYYY', 'MM/YYYY or DD/MM/YYYY (optional)', 'Optional remarks',
     ])
 
     auto_column_width(ws)

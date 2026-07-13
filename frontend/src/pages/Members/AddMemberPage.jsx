@@ -71,6 +71,7 @@ const AddMemberPage = () => {
         ...values,
         date_of_birth: values.date_of_birth ? values.date_of_birth.format('YYYY-MM-DD') : null,
         joining_date: values.joining_date ? values.joining_date.format('YYYY-MM-DD') : null,
+        masavari_paid_till: values.masavari_paid_till ? values.masavari_paid_till.startOf('month').format('YYYY-MM-DD') : null,
       }
       delete payload.photo
 
@@ -219,6 +220,14 @@ const AddMemberPage = () => {
           </Select>
         </Form.Item>
       </Col>
+      {!isEdit && (
+        <Col xs={24} md={12}>
+          <Form.Item label="Masavari Paid Till" name="masavari_paid_till" help="Optional. Auto-creates paid Masavari payments from joining date up to this month to prevent auto-deactivation.">
+            <DatePicker id="member-masavari-paid-till" picker="month" format="MM/YYYY" style={{ width: '100%' }}
+              disabledDate={(d) => d && d.isAfter(dayjs())} />
+          </Form.Item>
+        </Col>
+      )}
       <Col xs={24}>
         <Form.Item label="Member Photo" name="photo">
           <Upload
@@ -280,6 +289,9 @@ const AddMemberPage = () => {
             <Descriptions.Item label="PAN">{v.pan_number || '—'}</Descriptions.Item>
             <Descriptions.Item label="Joining Date">
               {v.joining_date ? v.joining_date.format('DD/MM/YYYY') : '—'}
+            </Descriptions.Item>
+            <Descriptions.Item label="Masavari Paid Till">
+              {v.masavari_paid_till ? v.masavari_paid_till.format('MM/YYYY') : '—'}
             </Descriptions.Item>
             <Descriptions.Item label="Status">{v.status}</Descriptions.Item>
             <Descriptions.Item label="Remarks" span={2}>{v.remarks || '—'}</Descriptions.Item>

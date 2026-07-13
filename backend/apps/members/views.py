@@ -67,22 +67,59 @@ class MemberDetailView(generics.RetrieveUpdateDestroyAPIView):
         return super().get_object()
 
     def destroy(self, request, *args, **kwargs):
-        """Soft delete: set status to inactive instead of hard delete."""
+        """Delete member: supports soft delete (default) and hard delete."""
         member = self.get_object()
-        if member.status == 'inactive':
-            return Response(
-                {'error': True, 'message': 'Member is already inactive.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        # Only admin can soft-delete
-        if request.user.role != 'admin':
-            return Response(
-                {'error': True, 'message': 'Only administrators can deactivate members.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        member.status = 'inactive'
-        member.save()
-        return Response({'message': 'Member deactivated successfully.'}, status=status.HTTP_200_OK)
+        hard_delete = request.query_params.get('hard_delete', 'false').lower() == 'true'
+
+        if hard_delete:
+            # Check permissions for hard delete
+            if request.user.role != 'admin':
+                return Response(
+                    {'error': True, 'message': 'Only administrators can permanently delete members.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            from django.db.models import ProtectedError
+            try:
+                member_no = member.member_no
+                full_name = member.full_name
+                member.delete()
+                
+                # Activity log
+                try:
+                    from apps.activities.models import ActivityLog
+                    ActivityLog.objects.create(
+                        activity_type='member_deleted',
+                        description=f"Member {member_no} - {full_name} was permanently deleted.",
+                        performed_by=request.user,
+                    )
+                except Exception:
+                    pass
+
+                return Response({'message': 'Member permanently deleted successfully.'}, status=status.HTTP_200_OK)
+            except ProtectedError as e:
+                protected_objects = e.protected_objects
+                model_names = {obj._meta.verbose_name.title() for obj in protected_objects}
+                return Response({
+                    'error': True,
+                    'message': f"Cannot permanently delete this member because they have associated records in: {', '.join(model_names)}."
+                }, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            # Soft delete
+            if member.status == 'inactive':
+                return Response(
+                    {'error': True, 'message': 'Member is already inactive.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            # Only admin can soft-delete
+            if request.user.role != 'admin':
+                return Response(
+                    {'error': True, 'message': 'Only administrators can deactivate members.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            member.status = 'inactive'
+            member.save()
+            return Response({'message': 'Member deactivated successfully.'}, status=status.HTTP_200_OK)
 
 
 class MemberSummaryView(APIView):
