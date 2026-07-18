@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   Row, Col, Card, Form, Input, InputNumber, Button, Select, DatePicker,
-  Table, Tag, Space, Tabs, Statistic, message, Divider, Typography
+  Table, Tag, Space, Tabs, Statistic, message, Divider, Typography, Modal
 } from 'antd'
 import {
   PlusOutlined, UnorderedListOutlined, BarChartOutlined, SearchOutlined
@@ -121,12 +121,43 @@ const CollectionsPage = () => {
     if (!memId) return
 
     if (cat === 'masavari') {
-      const nextMonth = masavari?.pending?.[0]?.month || undefined
-      const amt = parseFloat(masavari?.default_amount || 50)
-      form.setFieldsValue({
-        month_number: nextMonth,
-        amount: amt,
-      })
+      if (masavari && masavari.pending && masavari.pending.length === 0) {
+        Modal.confirm({
+          title: 'Masavari Up-to-Date',
+          content: 'Masavari payments for this member are up-to-date. Do you want to record a payment for the next month?',
+          okText: 'Yes, pay next month',
+          cancelText: 'No, dismiss',
+          onOk() {
+            let nextMonth = new Date().getMonth() + 2
+            if (nextMonth > 12) nextMonth = 1
+            if (masavari && masavari.history && masavari.history.length > 0) {
+              const latest = masavari.history[0]
+              nextMonth = latest.month + 1
+              if (nextMonth > 12) nextMonth = 1
+            }
+            const amt = parseFloat(masavari?.default_amount || 50)
+            form.setFieldsValue({
+              month_number: nextMonth,
+              amount: amt,
+            })
+          },
+          onCancel() {
+            form.setFieldsValue({
+              category: undefined,
+              month_number: undefined,
+              amount: undefined,
+            })
+            setCategory('')
+          }
+        })
+      } else {
+        const nextMonth = masavari?.pending?.[0]?.month || undefined
+        const amt = parseFloat(masavari?.default_amount || 50)
+        form.setFieldsValue({
+          month_number: nextMonth,
+          amount: amt,
+        })
+      }
     } else if (cat === 'welfare_payment') {
       if (welfares.length === 1) {
         const w = welfares[0]
