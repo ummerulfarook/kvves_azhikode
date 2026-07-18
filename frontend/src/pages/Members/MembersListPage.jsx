@@ -29,7 +29,7 @@ const MembersListPage = () => {
   const [filters, setFilters] = useState({
     search: '', status: '', membership_type: '', page: 1,
     joining_date_from: null, joining_date_to: null,
-    ordering: '',
+    ordering: 'member_no',
   })
 
   useEffect(() => {

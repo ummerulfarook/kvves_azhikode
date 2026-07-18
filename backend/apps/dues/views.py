@@ -3,6 +3,7 @@ Views for the dues app.
 """
 
 from django.utils import timezone
+from django.db.models import Q
 from rest_framework import generics, status, filters
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -267,6 +268,102 @@ class MasavariMarkPaidView(APIView):
             pass
 
         return Response({'message': 'Masavari payment marked as paid.'})
+
+
+class MasavariDueListView(APIView):
+    """GET /api/masavari/dues/ — computes all pending masavari dues across ALL active members.
+    Returns unpaid months from joining_date up to current month for every active member,
+    along with any DB-recorded pending/overdue entries.
+    Supports ?year=2026 and ?member=<id> filters.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from apps.members.models import Member
+        from dateutil.relativedelta import relativedelta
+        import datetime
+
+        today = timezone.now().date()
+        year_filter = request.query_params.get('year')
+        member_filter = request.query_params.get('member')
+        search = request.query_params.get('search', '')
+
+        members_qs = Member.objects.filter(status__in=['active']).select_related()
+        if member_filter:
+            members_qs = members_qs.filter(pk=member_filter)
+        if search:
+            members_qs = members_qs.filter(
+                Q(full_name__icontains=search) | Q(member_no__icontains=search)
+            )
+
+        # Pre-fetch all paid (year, month) by member to avoid N+1 queries
+        paid_qs = MasavariPayment.objects.filter(status='paid')
+        if year_filter:
+            paid_qs = paid_qs.filter(year=year_filter)
+        paid_set = {}  # {member_id: set of (year, month)}
+        for p in paid_qs:
+            paid_set.setdefault(p.member_id, set()).add((p.year, p.month))
+
+        # Pre-fetch all existing DB records (pending/overdue) by member
+        existing_qs = MasavariPayment.objects.filter(status__in=['pending', 'overdue'])
+        if year_filter:
+            existing_qs = existing_qs.filter(year=year_filter)
+        existing_map = {}  # {(member_id, year, month): record}
+        for rec in existing_qs:
+            existing_map[(rec.member_id, rec.year, rec.month)] = rec
+
+        dues_list = []
+
+        for member in members_qs:
+            if not member.joining_date:
+                continue
+
+            start = member.joining_date.replace(day=1)
+            if year_filter:
+                try:
+                    yr = int(year_filter)
+                    # Compute range within the filter year only
+                    range_start = max(start, datetime.date(yr, 1, 1))
+                    range_end = min(today.replace(day=1), datetime.date(yr, 12, 1))
+                except (ValueError, TypeError):
+                    range_start, range_end = start, today.replace(day=1)
+            else:
+                range_start = start
+                range_end = today.replace(day=1)
+
+            curr = range_start
+            while curr <= range_end:
+                yr, mo = curr.year, curr.month
+                member_paid = paid_set.get(member.id, set())
+                if (yr, mo) not in member_paid:
+                    due_date = curr.replace(day=5)
+                    is_overdue = due_date < today
+                    days_overdue = (today - due_date).days if is_overdue else 0
+                    existing = existing_map.get((member.id, yr, mo))
+                    dues_list.append({
+                        'id': existing.id if existing else None,
+                        'member': member.id,
+                        'member_name': member.full_name,
+                        'member_no': member.member_no,
+                        'month': mo,
+                        'year': yr,
+                        'amount': str(existing.amount if existing else member.masavari_amount),
+                        'due_date': due_date.isoformat(),
+                        'paid_date': None,
+                        'payment_mode': existing.payment_mode if existing else 'cash',
+                        'receipt_no': existing.receipt_no if existing else '',
+                        'status': existing.status if existing else ('overdue' if is_overdue else 'pending'),
+                        'is_overdue': is_overdue,
+                        'days_overdue': days_overdue,
+                        'month_label': curr.strftime('%B %Y'),
+                    })
+                curr += relativedelta(months=1)
+
+        # Sort: overdue first then pending, then by year/month
+        dues_list.sort(key=lambda x: (not x['is_overdue'], x['year'], x['month']))
+
+        return Response({'results': dues_list, 'count': len(dues_list)})
 
 
 class MasavariOverdueView(generics.ListAPIView):

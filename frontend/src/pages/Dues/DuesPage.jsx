@@ -52,6 +52,7 @@ const DuesPage = () => {
   const [members, setMembers] = useState([])
   const [filters, setFilters] = useState({ deposit_type: '', status: '' })
   const [masavariFilters, setMasavariFilters] = useState({ year: dayjs().year(), status: '' })
+  const [masavariSearch, setMasavariSearch] = useState('')
 
   useEffect(() => {
     loadDeposits()
@@ -59,7 +60,7 @@ const DuesPage = () => {
     loadOverdue()
     loadMasavari()
     loadMasavariOverdue()
-  }, [filters, masavariFilters])
+  }, [filters, masavariFilters, masavariSearch])
 
   const loadDeposits = async () => {
     setLoading(true)
@@ -99,9 +100,12 @@ const DuesPage = () => {
       const params = {}
       if (masavariFilters.year) params.year = masavariFilters.year
       if (masavariFilters.status) params.status = masavariFilters.status
-      const res = await duesApi.getMasavari(params)
+      if (masavariSearch) params.search = masavariSearch
+      const res = await duesApi.getMasavariDues(params)
       const data = res.data.results || res.data
-      setMasavari(data)
+      // Filter by status if needed (server returns all pending/overdue by default)
+      const filtered = masavariFilters.status ? data.filter(m => m.status === masavariFilters.status) : data
+      setMasavari(filtered)
       const paidCount = data.filter(m => m.status === 'paid').length
       setStats(prev => ({ ...prev, masavariPaid: paidCount }))
     } catch (_) {}
@@ -191,11 +195,31 @@ const DuesPage = () => {
     setSubmitting(true)
     try {
       const values = await masavariPayForm.validateFields()
-      await duesApi.markMasavariPaid(masavariPayModal.record.id, {
-        paid_date: values.paid_date?.format('YYYY-MM-DD'),
-        payment_mode: values.payment_mode,
-        receipt_no: values.receipt_no,
-      })
+      const row = masavariPayModal.record
+      let recordId = row.id
+
+      // If virtual row (no DB id), create the record first
+      if (!recordId) {
+        const createRes = await duesApi.createMasavari({
+          member: row.member,
+          year: row.year,
+          month: row.month,
+          amount: row.amount,
+          due_date: row.due_date,
+          payment_mode: values.payment_mode || 'cash',
+          receipt_no: values.receipt_no || '',
+          status: 'paid',
+          paid_date: values.paid_date?.format('YYYY-MM-DD') || new Date().toISOString().split('T')[0],
+        })
+        recordId = createRes.data?.id
+      } else {
+        await duesApi.markMasavariPaid(recordId, {
+          paid_date: values.paid_date?.format('YYYY-MM-DD'),
+          payment_mode: values.payment_mode,
+          receipt_no: values.receipt_no,
+        })
+      }
+
       message.success('Masavari marked as paid!')
       setMasavariPayModal({ open: false, record: null })
       masavariPayForm.resetFields()
@@ -303,20 +327,16 @@ const DuesPage = () => {
       render: (v) => <span style={{ fontWeight: 700, color: '#6366f1' }}>{formatCurrency(v)}</span>
     },
     { title: 'Due Date', dataIndex: 'due_date', render: (v) => formatDate(v) },
-    { title: 'Paid Date', dataIndex: 'paid_date', render: (v) => v ? formatDate(v) : '—' },
-    { title: 'Mode', dataIndex: 'payment_mode', render: (v) => <Tag>{v}</Tag> },
-    { title: 'Receipt', dataIndex: 'receipt_no', render: (v) => v || '—' },
     {
       title: 'Status', key: 'status',
       render: (_, row) => {
-        if (row.status === 'paid') return <Tag color="success">Paid</Tag>
-        if (row.is_overdue) return <OverdueTag isOverdue daysOverdue={0} />
+        if (row.is_overdue) return <OverdueTag isOverdue daysOverdue={row.days_overdue || 0} />
         return <Tag color="warning">Pending</Tag>
       },
     },
     canWrite ? {
       title: 'Action', key: 'action',
-      render: (_, row) => row.status !== 'paid' && (
+      render: (_, row) => (
         <Button size="small" type="primary" icon={<CheckCircleOutlined />}
           onClick={() => { masavariPayForm.resetFields(); setMasavariPayModal({ open: true, record: row }) }}>
           Mark Paid
@@ -403,6 +423,13 @@ const DuesPage = () => {
               <div>
                 {/* Masavari Filters */}
                 <div className="filter-bar" style={{ marginBottom: 16 }}>
+                  <Input.Search
+                    placeholder="Search member name or number…"
+                    allowClear
+                    style={{ width: 240 }}
+                    onSearch={(v) => setMasavariSearch(v)}
+                    onChange={(e) => !e.target.value && setMasavariSearch('')}
+                  />
                   <Select
                     value={masavariFilters.year}
                     onChange={(v) => setMasavariFilters(f => ({ ...f, year: v }))}
@@ -414,20 +441,19 @@ const DuesPage = () => {
                     allowClear
                     style={{ width: 160 }}
                     onChange={(v) => setMasavariFilters(f => ({ ...f, status: v || '' }))}>
-                    <Option value="paid">Paid</Option>
                     <Option value="pending">Pending</Option>
                     <Option value="overdue">Overdue</Option>
                   </Select>
                 </div>
                 <Table
                   columns={masavariColumns}
-                  dataSource={masavari}
+                  dataSource={masavari.map((r, i) => ({ ...r, _key: r.id ?? `virtual-${i}` }))}
                   loading={loading}
-                  rowKey="id"
+                  rowKey="_key"
                   id="masavari-table"
-                  pagination={{ pageSize: 25 }}
+                  pagination={{ pageSize: 30 }}
                   scroll={{ x: true }}
-                  rowClassName={(row) => (row.status !== 'paid' && row.is_overdue) ? 'text-overdue' : ''}
+                  rowClassName={(row) => row.is_overdue ? 'text-overdue' : ''}
                 />
               </div>
             ),

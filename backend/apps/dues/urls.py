@@ -16,6 +16,7 @@ urlpatterns = [
     path('dues/<int:pk>/mark-paid/', views.DueMarkPaidView.as_view(), name='dues-mark-paid'),
 
     path('masavari/', views.MasavariListCreateView.as_view(), name='masavari-list'),
+    path('masavari/dues/', views.MasavariDueListView.as_view(), name='masavari-dues'),
     path('masavari/overdue/', views.MasavariOverdueView.as_view(), name='masavari-overdue'),
     path('masavari/<int:pk>/', views.MasavariDetailView.as_view(), name='masavari-detail'),
     path('masavari/<int:pk>/mark-paid/', views.MasavariMarkPaidView.as_view(), name='masavari-mark-paid'),

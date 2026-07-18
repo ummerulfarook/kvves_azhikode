@@ -14,6 +14,7 @@ export const getOverdueDues = () => api.get('/dues/overdue/')
 
 // Masavari (Monthly Membership Fee)
 export const getMasavari = (params) => api.get('/masavari/', { params })
+export const getMasavariDues = (params) => api.get('/masavari/dues/', { params })
 export const createMasavari = (data) => api.post('/masavari/', data)
 export const updateMasavari = (id, data) => api.put(`/masavari/${id}/`, data)
 export const markMasavariPaid = (id, data) => api.patch(`/masavari/${id}/mark-paid/`, data)
