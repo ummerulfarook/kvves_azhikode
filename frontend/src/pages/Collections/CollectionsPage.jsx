@@ -41,6 +41,7 @@ const CollectionsPage = () => {
 
   const [memberWelfares, setMemberWelfares] = useState([])
   const [memberLoans, setMemberLoans] = useState([])
+  const [memberMasavari, setMemberMasavari] = useState(null)
   const [detailsLoading, setDetailsLoading] = useState(false)
 
   // Curry-specific state (loaded independently)
@@ -116,24 +117,76 @@ const CollectionsPage = () => {
     setParticipantsLoading(false)
   }
 
-  // When a member is selected, load their active sub-systems (welfares, loans)
+  const autofillFields = (cat, memId, welfares = memberWelfares, loans = memberLoans, masavari = memberMasavari) => {
+    if (!memId) return
+
+    if (cat === 'masavari') {
+      const nextMonth = masavari?.pending?.[0]?.month || undefined
+      const amt = parseFloat(masavari?.default_amount || 50)
+      form.setFieldsValue({
+        month_number: nextMonth,
+        amount: amt,
+      })
+    } else if (cat === 'welfare_payment') {
+      if (welfares.length === 1) {
+        const w = welfares[0]
+        form.setFieldsValue({
+          welfare_group: w.id,
+          month_number: w.next_pending_month || undefined,
+          amount: parseFloat(w.monthly_instalment) || undefined,
+        })
+      } else {
+        form.setFieldsValue({ welfare_group: undefined, month_number: undefined, amount: undefined })
+      }
+    } else if (cat === 'loan_emi') {
+      if (loans.length === 1) {
+        const l = loans[0]
+        form.setFieldsValue({
+          loan: l.id,
+          month_number: l.next_pending_instalment || undefined,
+          amount: parseFloat(l.emi_amount) || undefined,
+        })
+      } else {
+        form.setFieldsValue({ loan: undefined, month_number: undefined, amount: undefined })
+      }
+    } else {
+      form.setFieldsValue({ welfare_group: undefined, loan: undefined, month_number: undefined, amount: undefined })
+    }
+  }
+
+  const handleCategoryChange = (val) => {
+    setCategory(val)
+    form.setFieldsValue({ category: val || undefined })
+    autofillFields(val, selectedMember, memberWelfares, memberLoans, memberMasavari)
+  }
+
+  // When a member is selected, load their active sub-systems (welfares, loans, masavari)
   const handleMemberChange = async (memberId) => {
     setSelectedMember(memberId)
     setMemberWelfares([])
     setMemberLoans([])
-    form.setFieldsValue({ welfare_group: undefined, loan: undefined, month_number: undefined })
+    setMemberMasavari(null)
+    form.setFieldsValue({ welfare_group: undefined, loan: undefined, month_number: undefined, amount: undefined })
 
     if (!memberId) return
 
     setDetailsLoading(true)
     try {
-      const [welfaresRes, loansRes] = await Promise.all([
+      const [welfaresRes, loansRes, masavariRes] = await Promise.all([
         membersApi.getMemberChits(memberId),
         membersApi.getMemberLoans(memberId),
+        membersApi.getMemberMasavari(memberId),
       ])
 
-      setMemberWelfares((welfaresRes.data.results || welfaresRes.data).filter(w => w.status === 'active' || w.status === 'awarded'))
-      setMemberLoans((loansRes.data.results || loansRes.data).filter(l => l.status === 'active'))
+      const activeWelfares = (welfaresRes.data.results || welfaresRes.data).filter(w => w.status === 'active' || w.status === 'awarded')
+      const activeLoans = (loansRes.data.results || loansRes.data).filter(l => l.status === 'active')
+      const masavariData = masavariRes.data
+
+      setMemberWelfares(activeWelfares)
+      setMemberLoans(activeLoans)
+      setMemberMasavari(masavariData)
+
+      autofillFields(category, memberId, activeWelfares, activeLoans, masavariData)
     } catch (_) {
       message.error('Failed to load member program details.')
     }
@@ -175,6 +228,9 @@ const CollectionsPage = () => {
       setSelectedMember(null)
       setSelectedCurry(null)
       setCurryParticipants([])
+      setMemberWelfares([])
+      setMemberLoans([])
+      setMemberMasavari(null)
       loadEntries()
     } catch (err) {
       message.error(err?.response?.data?.message || 'Failed to record entry.')
@@ -326,7 +382,7 @@ const CollectionsPage = () => {
                   <Row gutter={16}>
                     <Col xs={12}>
                       <Form.Item label="Transaction Type" required>
-                        <Select value={entryType} onChange={(v) => { setEntryType(v); setCategory(''); form.setFieldsValue({ category: undefined }) }}>
+                        <Select value={entryType} onChange={(v) => { setEntryType(v); handleCategoryChange('') }}>
                           <Option value="income">Income (Incoming Cash / Payments)</Option>
                           <Option value="expense">Expense (Outgoing Payments / Cost)</Option>
                         </Select>
@@ -339,7 +395,7 @@ const CollectionsPage = () => {
                     </Col>
                     <Col xs={24}>
                       <Form.Item label="Category" name="category" rules={[{ required: true }]}>
-                        <Select placeholder="Select category" value={category} onChange={(v) => setCategory(v)}>
+                        <Select placeholder="Select category" value={category} onChange={handleCategoryChange}>
                           {entryType === 'income' ? (
                             <>
                               <Option value="welfare_payment">Welfare Payment (Record installment paid by member)</Option>
