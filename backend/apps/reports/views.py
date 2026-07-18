@@ -28,20 +28,11 @@ class DashboardView(APIView):
         today = timezone.now().date()
         one_year_ago = today - relativedelta(months=12)
 
-        total_members = Member.objects.filter(status='active').count()
+        total_members = Member.objects.count()
         active_chits = ChitGroup.objects.filter(status='active').count()
         active_loans = Loan.objects.filter(status='active').count()
 
-        # Active fee-paying members: active members who joined in the last 12 months OR paid masavari in the last 12 months
-        active_fee_member_ids = MasavariPayment.objects.filter(
-            status='paid',
-            paid_date__gte=one_year_ago
-        ).values_list('member_id', flat=True).distinct()
-        active_fee_paying_members = Member.objects.filter(
-            status='active'
-        ).filter(
-            Q(joining_date__gte=one_year_ago) | Q(id__in=active_fee_member_ids)
-        ).count()
+        active_fee_paying_members = Member.objects.filter(status='active').count()
 
         # Compile list of all overdue payments across categories
         all_overdue = []

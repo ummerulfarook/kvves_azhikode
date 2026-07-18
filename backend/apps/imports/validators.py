@@ -3,7 +3,7 @@ Import validators for Excel data.
 """
 
 import re
-from datetime import datetime
+from datetime import datetime, date
 
 
 def parse_date(value, fmt='%d/%m/%Y'):
@@ -12,10 +12,22 @@ def parse_date(value, fmt='%d/%m/%Y'):
         return None
     if isinstance(value, datetime):
         return value.date()
-    try:
-        return datetime.strptime(str(value).strip(), fmt).date()
-    except ValueError:
-        return None
+    if isinstance(value, date):
+        return value
+    
+    val_str = str(value).strip()
+    if val_str.endswith(' 00:00:00'):
+        val_str = val_str[:-9]
+    elif ' ' in val_str:
+        val_str = val_str.split(' ')[0]
+        
+    formats = [fmt, '%Y-%m-%d', '%d-%m-%Y', '%Y/%m/%d']
+    for f in formats:
+        try:
+            return datetime.strptime(val_str, f).date()
+        except ValueError:
+            continue
+    return None
 
 
 def validate_member_row(row, row_num, existing_member_nos):

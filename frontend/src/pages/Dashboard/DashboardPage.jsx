@@ -35,7 +35,7 @@ const DashboardPage = () => {
     {
       title: 'Active Members', value: stats.active_fee_paying_members || 0,
       icon: <UserOutlined />, color: '#16a34a', link: '/members',
-      tooltip: 'Members who paid monthly dues (Masavari) in last 12 months',
+      tooltip: 'Total number of active members in the system',
     },
     {
       title: 'Active Welfare', value: stats.active_chits || 0,
