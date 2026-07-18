@@ -271,7 +271,21 @@ class LoanRepaymentListCreateView(generics.ListCreateAPIView):
             repayment = LoanRepayment.objects.get(loan_id=loan_pk, instalment_no=int(instalment_no))
             serializer = self.get_serializer(repayment, data=data, partial=True)
             serializer.is_valid(raise_exception=True)
-            self.perform_update(serializer)
+            repayment = serializer.save(recorded_by=self.request.user, is_paid=True,
+                                        paid_date=serializer.validated_data.get('paid_date') or timezone.now().date())
+            try:
+                from apps.activities.models import ActivityLog
+                ActivityLog.objects.create(
+                    member=repayment.loan.member,
+                    activity_type='loan_repayment',
+                    description=f"Loan {repayment.loan.loan_no} — EMI {repayment.instalment_no} paid: ₹{repayment.amount_paid}.",
+                    amount=repayment.amount_paid,
+                    reference_id=str(repayment.id),
+                    reference_type='LoanRepayment',
+                    performed_by=self.request.user,
+                )
+            except Exception:
+                pass
             return Response(serializer.data, status=status.HTTP_200_OK)
         except LoanRepayment.DoesNotExist:
             return super().create(request, *args, **kwargs)
@@ -281,7 +295,7 @@ class LoanRepaymentListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         loan = Loan.objects.get(pk=self.kwargs['loan_pk'])
-        serializer.save(loan=loan, recorded_by=self.request.user, is_paid=True,
+        repayment = serializer.save(loan=loan, recorded_by=self.request.user, is_paid=True,
                         paid_date=serializer.validated_data.get('paid_date') or timezone.now().date())
 
         try:

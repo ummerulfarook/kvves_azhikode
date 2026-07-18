@@ -29,6 +29,7 @@ const MembersListPage = () => {
   const [filters, setFilters] = useState({
     search: '', status: '', membership_type: '', page: 1,
     joining_date_from: null, joining_date_to: null,
+    ordering: '',
   })
 
   useEffect(() => {
@@ -36,6 +37,7 @@ const MembersListPage = () => {
     if (!params.search) delete params.search
     if (!params.status) delete params.status
     if (!params.membership_type) delete params.membership_type
+    if (!params.ordering) delete params.ordering
     dispatch(fetchMembers(params))
   }, [filters, dispatch])
 
@@ -184,13 +186,25 @@ const MembersListPage = () => {
         dataSource={members}
         loading={loading}
         rowKey="id"
+        onChange={(pagi, fltr, sorter) => {
+          const params = {}
+          if (sorter.field) {
+            params.ordering = sorter.order === 'descend' ? `-${sorter.field}` : sorter.field
+          } else {
+            params.ordering = ''
+          }
+          setFilters((f) => ({
+            ...f,
+            ...params,
+            page: pagi.current,
+          }))
+        }}
         pagination={{
           total: pagination.count,
           pageSize: 20,
           current: filters.page,
           showSizeChanger: false,
           showTotal: (total, range) => `${range[0]}–${range[1]} of ${total}`,
-          onChange: (page) => setFilters((f) => ({ ...f, page })),
         }}
         scroll={{ x: 800 }}
         onRow={(row) => ({

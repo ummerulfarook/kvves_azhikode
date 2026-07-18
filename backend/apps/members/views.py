@@ -23,11 +23,36 @@ from .filters import MemberFilter
 from apps.accounts.permissions import IsAdminOrStaffOrReadOnly, CanDeleteMember
 
 
+class NumericMemberNoOrderingFilter(filters.OrderingFilter):
+    def filter_queryset(self, request, queryset, view):
+        ordering = self.get_ordering(request, queryset, view)
+        if ordering:
+            new_ordering = []
+            annotate_int = False
+            for field in ordering:
+                if field == 'member_no':
+                    new_ordering.append('member_no_int')
+                    annotate_int = True
+                elif field == '-member_no':
+                    new_ordering.append('-member_no_int')
+                    annotate_int = True
+                else:
+                    new_ordering.append(field)
+            if annotate_int:
+                from django.db.models.functions import Cast
+                from django.db.models import IntegerField
+                queryset = queryset.annotate(
+                    member_no_int=Cast('member_no', output_field=IntegerField())
+                )
+            return queryset.order_by(*new_ordering)
+        return queryset
+
+
 class MemberListCreateView(generics.ListCreateAPIView):
     """GET /api/members/ — list with search/filter; POST — create."""
 
     permission_classes = [IsAuthenticated, IsAdminOrStaffOrReadOnly]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, NumericMemberNoOrderingFilter]
     filterset_class = MemberFilter
     search_fields = ['full_name', 'phone', 'member_no', 'email', 'alternate_phone']
     ordering_fields = ['member_no', 'full_name', 'joining_date', 'created_at']

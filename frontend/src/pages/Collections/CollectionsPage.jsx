@@ -132,7 +132,7 @@ const CollectionsPage = () => {
         membersApi.getMemberLoans(memberId),
       ])
 
-      setMemberWelfares((welfaresRes.data.results || welfaresRes.data).filter(w => w.status === 'active'))
+      setMemberWelfares((welfaresRes.data.results || welfaresRes.data).filter(w => w.status === 'active' || w.status === 'awarded'))
       setMemberLoans((loansRes.data.results || loansRes.data).filter(l => l.status === 'active'))
     } catch (_) {
       message.error('Failed to load member program details.')
@@ -140,8 +140,8 @@ const CollectionsPage = () => {
     setDetailsLoading(false)
   }
 
-  const handleWelfareGroupSelect = (groupId) => {
-    const selected = memberWelfares.find(w => w.chit_group === groupId)
+  const handleWelfareGroupSelect = (enrollmentId) => {
+    const selected = memberWelfares.find(w => w.id === enrollmentId)
     if (selected) {
       form.setFieldsValue({
         month_number: selected.next_pending_month || undefined,
@@ -411,7 +411,7 @@ const CollectionsPage = () => {
                             >
                                <Select placeholder="Select welfare" loading={detailsLoading} onChange={handleWelfareGroupSelect}>
                                  {memberWelfares.map((w) => (
-                                   <Option key={w.id} value={w.chit_group}>
+                                   <Option key={w.id} value={w.id}>
                                      {w.group_name} ({w.group_no}) · Ticket #{w.ticket_number}
                                    </Option>
                                  ))}

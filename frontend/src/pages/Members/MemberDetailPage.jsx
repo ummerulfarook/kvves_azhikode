@@ -7,7 +7,7 @@ import {
 import {
   EditOutlined, UserAddOutlined, PlusOutlined, PrinterOutlined,
   ArrowLeftOutlined, DollarOutlined, CheckCircleOutlined, WarningOutlined,
-  DeleteOutlined,
+  DeleteOutlined, CloseCircleOutlined,
 } from '@ant-design/icons'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
@@ -226,7 +226,11 @@ const MemberDetailPage = () => {
   const handleChitPayment = async (paymentData) => {
     setSubmitting(true)
     try {
-      await chitsApi.recordPayment(paymentModal.payment.enrollment, paymentData)
+      const payload = {
+        ...paymentData,
+        month_number: paymentModal.payment.month_number,
+      }
+      await chitsApi.recordPayment(paymentModal.payment.enrollment, payload)
       message.success('Payment recorded successfully.')
       setPaymentModal({ open: false, enrollment: null, payment: null })
       loadChits()
@@ -402,7 +406,11 @@ const MemberDetailPage = () => {
   const handleLoanRepayment = async (paymentData) => {
     setSubmitting(true)
     try {
-      await loansApi.recordRepayment(loanRepayModal.loan.id, paymentData)
+      const payload = {
+        ...paymentData,
+        instalment_no: loanRepayModal.repayment.instalment_no,
+      }
+      await loansApi.recordRepayment(loanRepayModal.loan.id, payload)
       message.success('Repayment recorded.')
       setLoanRepayModal({ open: false, loan: null, repayment: null })
       loadLoans()

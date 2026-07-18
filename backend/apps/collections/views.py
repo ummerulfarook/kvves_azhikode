@@ -72,9 +72,13 @@ class DailyEntryListCreateView(generics.ListCreateAPIView):
 
             from apps.chits.models import ChitEnrollment, ChitPayment
             try:
-                enrollment = ChitEnrollment.objects.get(member_id=member_id, chit_group_id=group_id)
-            except ChitEnrollment.DoesNotExist:
+                enrollment = ChitEnrollment.objects.filter(pk=group_id, member_id=member_id).first()
+                if not enrollment:
+                    enrollment = ChitEnrollment.objects.get(member_id=member_id, chit_group_id=group_id)
+            except (ChitEnrollment.DoesNotExist, ValueError):
                 return Response({'error': True, 'message': 'Member is not enrolled in this welfare scheme.'}, status=400)
+            except ChitEnrollment.MultipleObjectsReturned:
+                return Response({'error': True, 'message': 'Multiple enrollments found for this member in the welfare scheme. Please contact admin.'}, status=400)
 
             from decimal import Decimal
             payment, created = ChitPayment.objects.get_or_create(
@@ -141,9 +145,6 @@ class DailyEntryListCreateView(generics.ListCreateAPIView):
             repayment.payment_mode = payment_mode
             repayment.recorded_by = request.user
             repayment.save()
-
-            loan.outstanding_balance = max(0, loan.outstanding_balance - amount)
-            loan.save()
 
             entry = DailyEntry.objects.filter(loan_repayment=repayment).first()
             if entry:
