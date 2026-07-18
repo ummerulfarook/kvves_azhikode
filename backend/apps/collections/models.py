@@ -16,6 +16,8 @@ class DailyEntry(models.Model):
         ('due', 'Due'),
         ('membership_fee', 'Membership Fee'),
         ('share_capital', 'Share Capital'),
+        ('masavari', 'Masavari / Monthly Fee'),
+        ('registration_fee', 'Registration Fee'),
         ('welfare_surcharge', 'Welfare Surcharge (Profit)'),
         ('welfare_reduction', 'Welfare Grace Period Reduction (Profit)'),
         ('loan_service_charge', 'Loan Service Charge (Profit)'),
