@@ -67,8 +67,8 @@ class ChitEnrollmentSerializer(serializers.ModelSerializer):
     member_no = serializers.SerializerMethodField()
     group_name = serializers.CharField(source='chit_group.group_name', read_only=True)
     group_no = serializers.CharField(source='chit_group.group_no', read_only=True)
-    guarantor1_name = serializers.CharField(source='guarantor1.full_name', read_only=True, allow_null=True)
-    guarantor2_name = serializers.CharField(source='guarantor2.full_name', read_only=True, allow_null=True)
+    guarantor1_name = serializers.SerializerMethodField()
+    guarantor2_name = serializers.SerializerMethodField()
     monthly_instalment = serializers.DecimalField(
         source='chit_group.monthly_instalment',
         max_digits=10, decimal_places=2, read_only=True
@@ -86,6 +86,20 @@ class ChitEnrollmentSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'chit_group': {'required': False},
         }
+
+    def get_guarantor1_name(self, obj):
+        if obj.guarantor1:
+            return obj.guarantor1.full_name
+        if obj.guarantor1_non_member_name:
+            return f"{obj.guarantor1_non_member_name} (Non-Member)"
+        return None
+
+    def get_guarantor2_name(self, obj):
+        if obj.guarantor2:
+            return obj.guarantor2.full_name
+        if obj.guarantor2_non_member_name:
+            return f"{obj.guarantor2_non_member_name} (Non-Member)"
+        return None
 
     def get_next_pending_month(self, obj):
         pending = obj.payments.filter(is_paid=False).order_by('month_number').first()
@@ -177,18 +191,19 @@ class ChitEnrollmentSerializer(serializers.ModelSerializer):
             attrs['ticket_number'] = f"{division_label}-{(max_num + 1):03d}"
 
         # 1. Non-member validation
+        guarantor1_non = attrs.get('guarantor1_non_member_name')
         if not member:
             if not non_member_name:
                 raise serializers.ValidationError({
                     'non_member_name': 'Either a Member or a Non-Member Name is required.'
                 })
-            if not guarantor1:
+            if not guarantor1 and not guarantor1_non:
                 raise serializers.ValidationError({
-                    'guarantor1': 'At least one member guarantor is required for enrolling a non-member.'
+                    'guarantor1': 'At least Guarantor 1 (Member or Non-Member) is required for enrolling a non-member.'
                 })
             if guarantor1 and guarantor2 and guarantor1 == guarantor2:
                 raise serializers.ValidationError({
-                    'guarantor2': 'Guarantor 1 and Guarantor 2 must be different members.'
+                    'guarantor2': 'Guarantor 1 and Guarantor 2 must be different.'
                 })
         else:
             # If standard member, check duplicate enrollment in this welfare scheme
@@ -244,11 +259,16 @@ class ChitGroupSerializer(serializers.ModelSerializer):
     def get_suggested_ticket_number(self, obj):
         tickets = obj.enrollments.values_list('ticket_number', flat=True)
         int_tickets = []
+        import re
         for t in tickets:
+            if not t:
+                continue
             try:
                 int_tickets.append(int(t))
             except ValueError:
-                pass
+                nums = re.findall(r'\d+', str(t))
+                if nums:
+                    int_tickets.append(int(nums[-1]))
         return max(int_tickets) + 1 if int_tickets else 1
 
     def validate(self, attrs):

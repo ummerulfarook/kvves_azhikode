@@ -3,7 +3,7 @@ import {
   Row, Col, Card, Button, Table, Tag, Typography, Space, Modal, Form,
   Input, InputNumber, Select, DatePicker, Tabs, message, Alert, Divider, Spin, Switch,
 } from 'antd'
-import { PlusOutlined, EyeOutlined, SafetyOutlined, UserAddOutlined, ArrowLeftOutlined, CoffeeOutlined } from '@ant-design/icons'
+import { PlusOutlined, EyeOutlined, SafetyOutlined, UserAddOutlined, ArrowLeftOutlined, CoffeeOutlined, EditOutlined, SettingOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import dayjs from 'dayjs'
 import * as chitsApi from '../../api/chits'
@@ -67,6 +67,17 @@ const WelfarePage = () => {
   const [payoutForm] = Form.useForm()
   const [handoverModal, setHandoverModal] = useState({ open: false, enrollment: null })
   const [handoverForm] = Form.useForm()
+
+  // Edit Member Enrollment states
+  const [editMemberModal, setEditMemberModal] = useState(false)
+  const [editingMemberEnrollment, setEditingMemberEnrollment] = useState(null)
+  const [editMemberForm] = Form.useForm()
+
+  // Edit Welfare Scheme states
+  const [editGroupModal, setEditGroupModal] = useState(false)
+  const [editingGroup, setEditingGroup] = useState(null)
+  const [editGroupForm] = Form.useForm()
+
   const openEditPayoutModal = (enrollment) => {
     setEditingEnrollment(enrollment)
     setEditPayoutModal(true)
@@ -238,16 +249,48 @@ const WelfarePage = () => {
     setMembersLoading(false)
   }, [])
 
-  const openAddMemberModal = (group) => {
+  const calculateNextToken = (groupObj, enrollList) => {
+    let maxNum = 0
+    if (Array.isArray(enrollList)) {
+      enrollList.forEach(e => {
+        if (e.ticket_number) {
+          const nums = String(e.ticket_number).match(/\d+/g)
+          if (nums) {
+            const val = parseInt(nums[nums.length - 1], 10)
+            if (!isNaN(val) && val > maxNum) maxNum = val
+          }
+        }
+      })
+    }
+    if (maxNum > 0) return maxNum + 1
+    return groupObj?.suggested_ticket_number || 1
+  }
+
+  const openAddMemberModal = async (group) => {
     if (!group) { message.warning('Please select a welfare scheme first.'); return }
     if (group.enrolled_count >= group.total_members) {
       message.error(`Cannot add member. This welfare scheme has reached its limit of ${group.total_members} members.`);
       return
     }
     setSelectedGroup(group)
+
+    let currentEnrollments = enrollments
+    try {
+      const res = await chitsApi.getEnrollments(group.id)
+      currentEnrollments = res.data.results || res.data
+      setEnrollments(currentEnrollments)
+    } catch (_) {}
+
+    const nextTicket = calculateNextToken(group, currentEnrollments)
+
     enrollForm.resetFields()
     enrollForm.setFieldsValue({
-      ticket_number: group.suggested_ticket_number || 1
+      is_registered_member: true,
+      ticket_number: nextTicket,
+      enrollment_date: dayjs(),
+      guarantor1_type: 'member',
+      guarantor2_type: 'none',
+      initial_paid_months: 0,
     })
     loadMembersForSelect('')
     setEnrollModal(true)
@@ -293,6 +336,7 @@ const WelfarePage = () => {
       const payload = {
         division_label: values.division_label,
         enrollment_date: values.enrollment_date?.format('YYYY-MM-DD') || dayjs().format('YYYY-MM-DD'),
+        initial_paid_months: values.initial_paid_months || 0,
       }
       if (values.ticket_number) {
         payload.ticket_number = String(values.ticket_number)
@@ -303,15 +347,36 @@ const WelfarePage = () => {
         payload.non_member_name = values.non_member_name
         payload.non_member_phone = values.non_member_phone
         payload.non_member_address = values.non_member_address
+      }
+
+      // Guarantor 1
+      if (values.guarantor1_type === 'member') {
         payload.guarantor1 = values.guarantor1
+      } else if (values.guarantor1_type === 'non_member') {
+        payload.guarantor1_non_member_name = values.guarantor1_non_member_name
+        payload.guarantor1_non_member_phone = values.guarantor1_non_member_phone
+      }
+
+      // Guarantor 2
+      if (values.guarantor2_type === 'member') {
         payload.guarantor2 = values.guarantor2
+      } else if (values.guarantor2_type === 'non_member') {
+        payload.guarantor2_non_member_name = values.guarantor2_non_member_name
+        payload.guarantor2_non_member_phone = values.guarantor2_non_member_phone
       }
 
       await chitsApi.enrollMember(selectedGroup.id, payload)
       message.success(`Member added to ${selectedGroup.group_name}!`)
       setEnrollModal(false)
       enrollForm.resetFields()
-      loadEnrollments(selectedGroup.id)
+
+      // Refresh enrollments & selectedGroup state immediately
+      const freshEnrollRes = await chitsApi.getEnrollments(selectedGroup.id)
+      const freshList = freshEnrollRes.data.results || freshEnrollRes.data
+      setEnrollments(freshList)
+
+      const freshGroupRes = await chitsApi.getChitGroup(selectedGroup.id)
+      setSelectedGroup(freshGroupRes.data)
       loadGroups()
     } catch (err) {
       const data = err?.response?.data
@@ -328,6 +393,146 @@ const WelfarePage = () => {
           JSON.stringify(data)
         message.error(msg)
       }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const openEditMemberModal = (enrollment) => {
+    setEditingMemberEnrollment(enrollment)
+    editMemberForm.resetFields()
+    editMemberForm.setFieldsValue({
+      enrollment_date: enrollment.enrollment_date ? dayjs(enrollment.enrollment_date) : dayjs(),
+      ticket_number: enrollment.ticket_number,
+      division_label: enrollment.division_label,
+      is_registered_member: !!enrollment.member,
+      member: enrollment.member,
+      non_member_name: enrollment.non_member_name,
+      non_member_phone: enrollment.non_member_phone,
+      non_member_address: enrollment.non_member_address,
+      guarantor1_type: enrollment.guarantor1 ? 'member' : (enrollment.guarantor1_non_member_name ? 'non_member' : 'none'),
+      guarantor1: enrollment.guarantor1,
+      guarantor1_non_member_name: enrollment.guarantor1_non_member_name,
+      guarantor1_non_member_phone: enrollment.guarantor1_non_member_phone,
+      guarantor2_type: enrollment.guarantor2 ? 'member' : (enrollment.guarantor2_non_member_name ? 'non_member' : 'none'),
+      guarantor2: enrollment.guarantor2,
+      guarantor2_non_member_name: enrollment.guarantor2_non_member_name,
+      guarantor2_non_member_phone: enrollment.guarantor2_non_member_phone,
+      status: enrollment.status,
+      remarks: enrollment.remarks,
+    })
+    loadMembersForSelect('')
+    setEditMemberModal(true)
+  }
+
+  const handleUpdateMember = async () => {
+    if (!editingMemberEnrollment) return
+    setSubmitting(true)
+    try {
+      const values = await editMemberForm.validateFields()
+      const payload = {
+        enrollment_date: values.enrollment_date?.format('YYYY-MM-DD'),
+        ticket_number: String(values.ticket_number),
+        division_label: values.division_label,
+        status: values.status,
+        remarks: values.remarks || '',
+      }
+
+      if (values.is_registered_member !== false) {
+        payload.member = values.member
+        payload.non_member_name = ''
+        payload.non_member_phone = ''
+        payload.non_member_address = ''
+      } else {
+        payload.member = null
+        payload.non_member_name = values.non_member_name
+        payload.non_member_phone = values.non_member_phone
+        payload.non_member_address = values.non_member_address
+      }
+
+      if (values.guarantor1_type === 'member') {
+        payload.guarantor1 = values.guarantor1
+        payload.guarantor1_non_member_name = ''
+        payload.guarantor1_non_member_phone = ''
+      } else if (values.guarantor1_type === 'non_member') {
+        payload.guarantor1 = null
+        payload.guarantor1_non_member_name = values.guarantor1_non_member_name
+        payload.guarantor1_non_member_phone = values.guarantor1_non_member_phone
+      } else {
+        payload.guarantor1 = null
+        payload.guarantor1_non_member_name = ''
+        payload.guarantor1_non_member_phone = ''
+      }
+
+      if (values.guarantor2_type === 'member') {
+        payload.guarantor2 = values.guarantor2
+        payload.guarantor2_non_member_name = ''
+        payload.guarantor2_non_member_phone = ''
+      } else if (values.guarantor2_type === 'non_member') {
+        payload.guarantor2 = null
+        payload.guarantor2_non_member_name = values.guarantor2_non_member_name
+        payload.guarantor2_non_member_phone = values.guarantor2_non_member_phone
+      } else {
+        payload.guarantor2 = null
+        payload.guarantor2_non_member_name = ''
+        payload.guarantor2_non_member_phone = ''
+      }
+
+      await chitsApi.patchEnrollment(editingMemberEnrollment.id, payload)
+      message.success('Member enrollment details updated!')
+      setEditMemberModal(false)
+      if (selectedGroup) {
+        loadEnrollments(selectedGroup.id)
+      }
+    } catch (err) {
+      message.error(err?.response?.data?.message || err?.response?.data?.non_field_errors?.[0] || 'Failed to update member.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const openEditGroupModal = (group) => {
+    setEditingGroup(group)
+    editGroupForm.resetFields()
+    editGroupForm.setFieldsValue({
+      group_no: group.group_no,
+      group_name: group.group_name,
+      chit_value: parseFloat(group.chit_value),
+      total_members: group.total_members,
+      duration_months: group.duration_months,
+      number_of_divisions: group.number_of_divisions,
+      division_labels: group.division_labels,
+      current_month: group.current_month,
+      commission_rate: parseFloat(group.commission_rate || 0),
+      processing_days: group.processing_days || 7,
+      start_date: group.start_date ? dayjs(group.start_date) : dayjs(),
+      end_date: group.end_date ? dayjs(group.end_date) : null,
+      status: group.status,
+      remarks: group.remarks,
+    })
+    setEditGroupModal(true)
+  }
+
+  const handleUpdateGroup = async () => {
+    if (!editingGroup) return
+    setSubmitting(true)
+    try {
+      const values = await editGroupForm.validateFields()
+      const payload = {
+        ...values,
+        start_date: values.start_date?.format('YYYY-MM-DD'),
+        end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
+      }
+      await chitsApi.patchChitGroup(editingGroup.id, payload)
+      message.success('Welfare scheme updated!')
+      setEditGroupModal(false)
+      await loadGroups()
+      if (selectedGroup && selectedGroup.id === editingGroup.id) {
+        const updatedRes = await chitsApi.getChitGroup(editingGroup.id)
+        setSelectedGroup(updatedRes.data)
+      }
+    } catch (err) {
+      message.error(err?.response?.data?.message || 'Failed to update welfare scheme.')
     } finally {
       setSubmitting(false)
     }
@@ -455,7 +660,7 @@ const WelfarePage = () => {
     { title: 'Status', dataIndex: 'status', width: 100, render: (v) => <StatusBadge status={v} /> },
     { title: 'Members', dataIndex: 'enrolled_count', width: 80, render: (v) => <Tag color="blue">{v || 0}</Tag> },
     {
-      title: 'Actions', key: 'actions', fixed: 'right', width: 180,
+      title: 'Actions', key: 'actions', fixed: 'right', width: 240,
       render: (_, row) => (
         <Space size={4}>
           <Button
@@ -466,15 +671,24 @@ const WelfarePage = () => {
             View
           </Button>
           {canWrite && (
-            <Button
-              size="small" 
-              type="primary" 
-              icon={<UserAddOutlined />}
-              disabled={row.enrolled_count >= row.total_members}
-              onClick={() => openAddMemberModal(row)}
-            >
-              Add
-            </Button>
+            <>
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => openEditGroupModal(row)}
+              >
+                Edit
+              </Button>
+              <Button
+                size="small" 
+                type="primary" 
+                icon={<UserAddOutlined />}
+                disabled={row.enrolled_count >= row.total_members}
+                onClick={() => openAddMemberModal(row)}
+              >
+                Add
+              </Button>
+            </>
           )}
         </Space>
       ),
@@ -558,16 +772,27 @@ const WelfarePage = () => {
         </Space>
       }
       extra={
-        canWrite && group.status === 'active' && (
-          <Button 
-            type="primary" 
-            icon={<UserAddOutlined />} 
-            size="small"
-            disabled={group.enrolled_count >= group.total_members}
-            onClick={() => openAddMemberModal(group)}
-          >
-            {group.enrolled_count >= group.total_members ? 'Scheme Full' : 'Add Member'}
-          </Button>
+        canWrite && (
+          <Space>
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => openEditGroupModal(group)}
+            >
+              Edit Scheme
+            </Button>
+            {group.status === 'active' && (
+              <Button 
+                type="primary" 
+                icon={<UserAddOutlined />} 
+                size="small"
+                disabled={group.enrolled_count >= group.total_members}
+                onClick={() => openAddMemberModal(group)}
+              >
+                {group.enrolled_count >= group.total_members ? 'Scheme Full' : 'Add Member'}
+              </Button>
+            )}
+          </Space>
         )
       }
     >
@@ -729,7 +954,7 @@ const WelfarePage = () => {
                       }
                     },
                     {
-                      title: 'Actions', key: 'actions', fixed: 'right', width: 280,
+                      title: 'Actions', key: 'actions', fixed: 'right', width: 340,
                       render: (_, row) => {
                         const readyDate = dayjs(row.prize_date).add(group.processing_days || 7, 'day');
                         const daysLeft = readyDate.diff(dayjs(), 'day');
@@ -743,6 +968,11 @@ const WelfarePage = () => {
                               </Button>
                             ) : (
                               <Tag color="orange">Non-Member</Tag>
+                            )}
+                            {canWrite && (
+                              <Button size="small" icon={<EditOutlined />} onClick={() => openEditMemberModal(row)}>
+                                Edit Details
+                              </Button>
                             )}
                             {isEditable && canWrite && (
                               <Button size="small" type="primary" onClick={() => openEditPayoutModal(row)}>
@@ -1058,17 +1288,17 @@ const WelfarePage = () => {
         onOk={handleEnrollMember}
         confirmLoading={submitting}
         okText="Add Person"
-        width={500}
+        width={560}
         destroyOnClose
       >
         {selectedGroup && (
           <Alert
             message={`Scheme: ${selectedGroup.group_name} (${selectedGroup.group_no})`}
-            description={`Monthly: ${formatCurrency(selectedGroup.monthly_instalment)} · Duration: ${selectedGroup.duration_months} months`}
+            description={`Monthly: ${formatCurrency(selectedGroup.monthly_instalment)} · Duration: ${selectedGroup.duration_months} months · Active Month: ${selectedGroup.current_month}`}
             type="info" showIcon style={{ marginBottom: 16 }}
           />
         )}
-        <Form form={enrollForm} layout="vertical" initialValues={{ is_registered_member: true }}>
+        <Form form={enrollForm} layout="vertical" initialValues={{ is_registered_member: true, guarantor1_type: 'member', guarantor2_type: 'none', initial_paid_months: 0 }}>
           <Form.Item
             label="Is Registered Member?"
             name="is_registered_member"
@@ -1123,50 +1353,97 @@ const WelfarePage = () => {
               >
                 <Input.TextArea placeholder="Enter address details" rows={2} />
               </Form.Item>
-              <Form.Item
-                label="Guarantor 1 (Registered Member)"
-                name="guarantor1"
-                rules={[{ required: true, message: 'Guarantor 1 is required' }]}
-              >
-                <Select
-                  showSearch
-                  loading={membersLoading}
-                  filterOption={false}
-                  onSearch={(v) => loadMembersForSelect(v)}
-                  onFocus={() => members.length === 0 && loadMembersForSelect('')}
-                  placeholder="Search member..."
-                >
-                  {members.filter(m => m.id !== enrollMember && m.id !== enrollGuarantor2).map((m) => (
-                    <Option key={m.id} value={m.id}>{m.full_name} ({m.member_no})</Option>
-                  ))}
-                </Select>
-              </Form.Item>
-              <Form.Item
-                label="Guarantor 2 (Registered Member)"
-                name="guarantor2"
-                rules={[{ required: false }]}
-              >
-                <Select
-                  showSearch
-                  loading={membersLoading}
-                  filterOption={false}
-                  onSearch={(v) => loadMembersForSelect(v)}
-                  onFocus={() => members.length === 0 && loadMembersForSelect('')}
-                  placeholder="Search member..."
-                  allowClear
-                >
-                  {members.filter(m => m.id !== enrollMember && m.id !== enrollGuarantor1).map((m) => (
-                    <Option key={m.id} value={m.id}>{m.full_name} ({m.member_no})</Option>
-                  ))}
-                </Select>
-              </Form.Item>
             </>
           )}
 
+          {/* Guarantors Selection (Member OR Non-Member) */}
+          <Divider style={{ margin: '12px 0' }}><Text type="secondary" style={{ fontSize: 12 }}>Guarantor Details (Member or Non-Member)</Text></Divider>
+
+          <Form.Item label="Guarantor 1 Type" name="guarantor1_type">
+            <Select onChange={() => enrollForm.setFieldsValue({ guarantor1: undefined, guarantor1_non_member_name: '', guarantor1_non_member_phone: '' })}>
+              <Option value="member">Registered Member</Option>
+              <Option value="non_member">Non-Member (External Person)</Option>
+            </Select>
+          </Form.Item>
+
+          {Form.useWatch('guarantor1_type', enrollForm) === 'non_member' ? (
+            <Row gutter={8}>
+              <Col span={12}>
+                <Form.Item label="Guarantor 1 Name" name="guarantor1_non_member_name" rules={[{ required: true, message: 'Guarantor 1 name required' }]}>
+                  <Input placeholder="Full name" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item label="Guarantor 1 Phone" name="guarantor1_non_member_phone" rules={[{ required: true, message: 'Guarantor 1 phone required' }]}>
+                  <Input placeholder="Phone number" />
+                </Form.Item>
+              </Col>
+            </Row>
+          ) : (
+            <Form.Item label="Guarantor 1 (Member)" name="guarantor1" rules={[{ required: Form.useWatch('is_registered_member', enrollForm) === false, message: 'Guarantor 1 is required' }]}>
+              <Select
+                showSearch
+                loading={membersLoading}
+                filterOption={false}
+                onSearch={(v) => loadMembersForSelect(v)}
+                onFocus={() => members.length === 0 && loadMembersForSelect('')}
+                placeholder="Search member..."
+                allowClear
+              >
+                {members.filter(m => m.id !== enrollMember && m.id !== enrollGuarantor2).map((m) => (
+                  <Option key={m.id} value={m.id}>{m.full_name} ({m.member_no})</Option>
+                ))}
+              </Select>
+            </Form.Item>
+          )}
+
+          <Form.Item label="Guarantor 2 Type" name="guarantor2_type">
+            <Select onChange={() => enrollForm.setFieldsValue({ guarantor2: undefined, guarantor2_non_member_name: '', guarantor2_non_member_phone: '' })}>
+              <Option value="none">None (Optional)</Option>
+              <Option value="member">Registered Member</Option>
+              <Option value="non_member">Non-Member (External Person)</Option>
+            </Select>
+          </Form.Item>
+
+          {Form.useWatch('guarantor2_type', enrollForm) === 'non_member' && (
+            <Row gutter={8}>
+              <Col span={12}>
+                <Form.Item label="Guarantor 2 Name" name="guarantor2_non_member_name">
+                  <Input placeholder="Full name" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item label="Guarantor 2 Phone" name="guarantor2_non_member_phone">
+                  <Input placeholder="Phone number" />
+                </Form.Item>
+              </Col>
+            </Row>
+          )}
+
+          {Form.useWatch('guarantor2_type', enrollForm) === 'member' && (
+            <Form.Item label="Guarantor 2 (Member)" name="guarantor2">
+              <Select
+                showSearch
+                loading={membersLoading}
+                filterOption={false}
+                onSearch={(v) => loadMembersForSelect(v)}
+                onFocus={() => members.length === 0 && loadMembersForSelect('')}
+                placeholder="Search member..."
+                allowClear
+              >
+                {members.filter(m => m.id !== enrollMember && m.id !== enrollGuarantor1).map((m) => (
+                  <Option key={m.id} value={m.id}>{m.full_name} ({m.member_no})</Option>
+                ))}
+              </Select>
+            </Form.Item>
+          )}
+
+          <Divider style={{ margin: '12px 0' }} />
+
           <Form.Item
-            label="Ticket Number (optional)"
+            label="Ticket / Token Number (Auto-Incremented)"
             name="ticket_number"
-            extra="Unique ticket number. Leave blank to auto-generate."
+            extra="Automatically assigned next sequential token number."
           >
             <Input id="enroll-ticket" placeholder="e.g. 21" />
           </Form.Item>
@@ -1177,6 +1454,257 @@ const WelfarePage = () => {
           >
             <DatePicker id="enroll-date" style={{ width: '100%' }} format="DD/MM/YYYY" />
           </Form.Item>
+
+          {selectedGroup && selectedGroup.current_month > 1 && (
+            <Form.Item
+              label="Paid Up To Month Number (Early-Started Scheme)"
+              name="initial_paid_months"
+              extra={`Scheme is currently at Month ${selectedGroup.current_month}. Enter how many months this member has ALREADY paid for in this scheme (e.g. ${selectedGroup.current_month - 1}).`}
+            >
+              <InputNumber min={0} max={selectedGroup.current_month} style={{ width: '100%' }} />
+            </Form.Item>
+          )}
+        </Form>
+      </Modal>
+
+      {/* Edit Enrolled Member Modal */}
+      <Modal
+        title={
+          <Space>
+            <EditOutlined style={{ color: '#2563eb' }} />
+            <span>Edit Member Enrollment Details</span>
+          </Space>
+        }
+        open={editMemberModal}
+        onCancel={() => setEditMemberModal(false)}
+        onOk={handleUpdateMember}
+        confirmLoading={submitting}
+        okText="Save Changes"
+        width={560}
+        destroyOnClose
+      >
+        <Form form={editMemberForm} layout="vertical">
+          <Form.Item
+            label="Is Registered Member?"
+            name="is_registered_member"
+            valuePropName="checked"
+          >
+            <Switch checkedChildren="Yes (Member)" unCheckedChildren="No (Non-Member)" />
+          </Form.Item>
+
+          {Form.useWatch('is_registered_member', editMemberForm) !== false ? (
+            <Form.Item
+              label="Select Member"
+              name="member"
+              rules={[{ required: true, message: 'Please select a member' }]}
+            >
+              <Select
+                showSearch
+                loading={membersLoading}
+                filterOption={false}
+                onSearch={(v) => loadMembersForSelect(v)}
+                onFocus={() => members.length === 0 && loadMembersForSelect('')}
+                placeholder="Search member by name or number..."
+              >
+                {members.map((m) => (
+                  <Option key={m.id} value={m.id}>
+                    <span style={{ fontWeight: 600 }}>{m.full_name}</span>
+                    <span style={{ color: '#9ba3bc', fontSize: 12, marginLeft: 8 }}>({m.member_no})</span>
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+          ) : (
+            <>
+              <Form.Item label="Non-Member Full Name" name="non_member_name" rules={[{ required: true, message: 'Name is required' }]}>
+                <Input placeholder="Enter full name" />
+              </Form.Item>
+              <Form.Item label="Non-Member Phone Number" name="non_member_phone" rules={[{ required: true, message: 'Phone is required' }]}>
+                <Input placeholder="Enter phone number" />
+              </Form.Item>
+              <Form.Item label="Non-Member Address" name="non_member_address">
+                <Input.TextArea placeholder="Enter address details" rows={2} />
+              </Form.Item>
+            </>
+          )}
+
+          <Divider style={{ margin: '12px 0' }}><Text type="secondary" style={{ fontSize: 12 }}>Guarantor Details</Text></Divider>
+
+          <Form.Item label="Guarantor 1 Type" name="guarantor1_type">
+            <Select>
+              <Option value="none">None</Option>
+              <Option value="member">Registered Member</Option>
+              <Option value="non_member">Non-Member (External Person)</Option>
+            </Select>
+          </Form.Item>
+
+          {Form.useWatch('guarantor1_type', editMemberForm) === 'non_member' && (
+            <Row gutter={8}>
+              <Col span={12}>
+                <Form.Item label="Guarantor 1 Name" name="guarantor1_non_member_name">
+                  <Input placeholder="Full name" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item label="Guarantor 1 Phone" name="guarantor1_non_member_phone">
+                  <Input placeholder="Phone number" />
+                </Form.Item>
+              </Col>
+            </Row>
+          )}
+
+          {Form.useWatch('guarantor1_type', editMemberForm) === 'member' && (
+            <Form.Item label="Guarantor 1 (Member)" name="guarantor1">
+              <Select showSearch loading={membersLoading} filterOption={false} onSearch={(v) => loadMembersForSelect(v)} onFocus={() => members.length === 0 && loadMembersForSelect('')} placeholder="Search member..." allowClear>
+                {members.map((m) => (
+                  <Option key={m.id} value={m.id}>{m.full_name} ({m.member_no})</Option>
+                ))}
+              </Select>
+            </Form.Item>
+          )}
+
+          <Form.Item label="Guarantor 2 Type" name="guarantor2_type">
+            <Select>
+              <Option value="none">None</Option>
+              <Option value="member">Registered Member</Option>
+              <Option value="non_member">Non-Member (External Person)</Option>
+            </Select>
+          </Form.Item>
+
+          {Form.useWatch('guarantor2_type', editMemberForm) === 'non_member' && (
+            <Row gutter={8}>
+              <Col span={12}>
+                <Form.Item label="Guarantor 2 Name" name="guarantor2_non_member_name">
+                  <Input placeholder="Full name" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item label="Guarantor 2 Phone" name="guarantor2_non_member_phone">
+                  <Input placeholder="Phone number" />
+                </Form.Item>
+              </Col>
+            </Row>
+          )}
+
+          {Form.useWatch('guarantor2_type', editMemberForm) === 'member' && (
+            <Form.Item label="Guarantor 2 (Member)" name="guarantor2">
+              <Select showSearch loading={membersLoading} filterOption={false} onSearch={(v) => loadMembersForSelect(v)} onFocus={() => members.length === 0 && loadMembersForSelect('')} placeholder="Search member..." allowClear>
+                {members.map((m) => (
+                  <Option key={m.id} value={m.id}>{m.full_name} ({m.member_no})</Option>
+                ))}
+              </Select>
+            </Form.Item>
+          )}
+
+          <Divider style={{ margin: '12px 0' }} />
+
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item label="Ticket Number" name="ticket_number" rules={[{ required: true, message: 'Ticket number required' }]}>
+                <Input />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Enrollment Date" name="enrollment_date" rules={[{ required: true, message: 'Date required' }]}>
+                <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item label="Status" name="status">
+            <Select>
+              <Option value="active">Active</Option>
+              <Option value="awarded">Awarded</Option>
+              <Option value="completed">Completed</Option>
+              <Option value="defaulted">Defaulted</Option>
+              <Option value="transferred">Transferred</Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item label="Remarks" name="remarks">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Edit Welfare Scheme Modal */}
+      <Modal
+        title={
+          <Space>
+            <SettingOutlined style={{ color: '#2563eb' }} />
+            <span>Edit Welfare Scheme Properties</span>
+          </Space>
+        }
+        open={editGroupModal}
+        onCancel={() => setEditGroupModal(false)}
+        onOk={handleUpdateGroup}
+        confirmLoading={submitting}
+        okText="Save Scheme Changes"
+        width={640}
+      >
+        <Form form={editGroupForm} layout="vertical">
+          <Row gutter={16}>
+            <Col xs={12}>
+              <Form.Item label="Welfare No" name="group_no" rules={[{ required: true, message: 'Required' }]}>
+                <Input disabled />
+              </Form.Item>
+            </Col>
+            <Col xs={12}>
+              <Form.Item label="Scheme Name" name="group_name" rules={[{ required: true, message: 'Required' }]}>
+                <Input />
+              </Form.Item>
+            </Col>
+            <Col xs={12}>
+              <Form.Item label="Welfare Value (₹)" name="chit_value" rules={[{ required: true, message: 'Required' }]}>
+                <InputNumber min={0} style={{ width: '100%' }} prefix="₹" />
+              </Form.Item>
+            </Col>
+            <Col xs={12}>
+              <Form.Item label="Total Members" name="total_members" rules={[{ required: true, message: 'Required' }]}>
+                <InputNumber min={1} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col xs={12}>
+              <Form.Item label="Duration (Months)" name="duration_months" rules={[{ required: true, message: 'Required' }]}>
+                <InputNumber min={1} max={120} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col xs={12}>
+              <Form.Item label="Current Active Month / Auctions Completed" name="current_month" rules={[{ required: true, message: 'Required' }]} extra="Set active auction month number for early-started schemes.">
+                <InputNumber min={1} max={120} style={{ width: '100%' }} />
+              </Form.Item>
+            </Col>
+            <Col xs={12}>
+              <Form.Item label="Start Date" name="start_date" rules={[{ required: true, message: 'Required' }]}>
+                <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+              </Form.Item>
+            </Col>
+            <Col xs={12}>
+              <Form.Item label="Commission Rate / Surcharge (₹)" name="commission_rate">
+                <InputNumber min={0} style={{ width: '100%' }} prefix="₹" />
+              </Form.Item>
+            </Col>
+            <Col xs={12}>
+              <Form.Item label="Status" name="status">
+                <Select>
+                  <Option value="upcoming">Upcoming</Option>
+                  <Option value="active">Active</Option>
+                  <Option value="completed">Completed</Option>
+                  <Option value="terminated">Terminated</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+            <Col xs={12}>
+              <Form.Item label="Processing Period" name="processing_days" rules={[{ required: true, message: 'Required' }]}>
+                <InputNumber min={0} style={{ width: '100%' }} addonAfter="days" />
+              </Form.Item>
+            </Col>
+            <Col xs={24}>
+              <Form.Item label="Remarks" name="remarks">
+                <Input.TextArea rows={2} />
+              </Form.Item>
+            </Col>
+          </Row>
         </Form>
       </Modal>
 

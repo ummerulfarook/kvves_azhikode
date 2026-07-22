@@ -83,15 +83,27 @@ class ChitEnrollView(generics.CreateAPIView):
         from datetime import date
         from dateutil.relativedelta import relativedelta
         start = group.start_date
+        try:
+            initial_paid_months = int(self.request.data.get('initial_paid_months', 0) or 0)
+        except (ValueError, TypeError):
+            initial_paid_months = 0
+
         for month in range(1, group.current_month + 1):
             due = start + relativedelta(months=month - 1)
+            is_paid = (month <= initial_paid_months)
+            amount_paid = group.monthly_instalment if is_paid else 0.00
+            paid_date = enrollment.enrollment_date if is_paid else None
+
             ChitPayment.objects.create(
                 enrollment=enrollment,
                 month_number=month,
                 installment_amount=group.monthly_instalment,
-                amount_paid=0.00,
+                amount_paid=amount_paid,
                 due_date=due,
-                is_paid=False,
+                paid_date=paid_date,
+                is_paid=is_paid,
+                payment_mode='cash' if is_paid else 'cash',
+                recorded_by=self.request.user if is_paid else None,
             )
 
         # Activity log

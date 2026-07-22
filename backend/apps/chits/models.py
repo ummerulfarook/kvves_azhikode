@@ -85,6 +85,9 @@ class ChitEnrollment(models.Model):
         null=True,
         blank=True,
     )
+    guarantor1_non_member_name = models.CharField(max_length=150, blank=True)
+    guarantor1_non_member_phone = models.CharField(max_length=15, blank=True)
+
     guarantor2 = models.ForeignKey(
         'members.Member',
         on_delete=models.PROTECT,
@@ -92,6 +95,8 @@ class ChitEnrollment(models.Model):
         null=True,
         blank=True,
     )
+    guarantor2_non_member_name = models.CharField(max_length=150, blank=True)
+    guarantor2_non_member_phone = models.CharField(max_length=15, blank=True)
 
     chit_group = models.ForeignKey(
         ChitGroup,
