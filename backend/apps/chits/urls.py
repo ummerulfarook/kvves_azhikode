@@ -15,7 +15,9 @@ urlpatterns = [
     path('chit-groups/<int:group_pk>/active-auction/complete/', views.WelfareActiveAuctionView.as_view(), name='welfare-active-auction-complete'),
     path('chit-groups/<int:group_pk>/auctions/', views.WelfareAuctionListView.as_view(), name='welfare-completed-auctions'),
 
+    path('enrollments/', views.AllChitEnrollmentListView.as_view(), name='all-enrollments-list'),
     path('enrollments/<int:pk>/', views.ChitEnrollmentDetailView.as_view(), name='enrollment-detail'),
+    path('enrollments/<int:pk>/clear-dues/', views.ChitClearDuesUpToMonthView.as_view(), name='enrollment-clear-dues'),
     path('enrollments/<int:enrollment_pk>/payments/', views.ChitPaymentListCreateView.as_view(), name='chit-payments-list'),
     path('payments/<int:pk>/', views.ChitPaymentDetailView.as_view(), name='chit-payment-detail'),
 

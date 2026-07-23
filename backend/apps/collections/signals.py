@@ -28,24 +28,24 @@ from .models import DailyEntry
 #         DailyEntry.objects.filter(chit_payment=instance).delete()
 
 
-@receiver(post_save, sender=LoanRepayment)
-def create_loan_repayment_entry(sender, instance, created, **kwargs):
-    if instance.is_paid:
-        DailyEntry.objects.update_or_create(
-            loan_repayment=instance,
-            defaults={
-                'date': instance.paid_date or instance.due_date,
-                'entry_type': 'income',
-                'category': 'loan_emi',
-                'amount': instance.amount_paid,
-                'description': f"Loan EMI Payment — Installment {instance.instalment_no} for {instance.loan.member.full_name} (Loan {instance.loan.loan_no})",
-                'member': instance.loan.member,
-                'payment_mode': instance.payment_mode,
-                'recorded_by': instance.recorded_by,
-            }
-        )
-    else:
-        DailyEntry.objects.filter(loan_repayment=instance).delete()
+# @receiver(post_save, sender=LoanRepayment)
+# def create_loan_repayment_entry(sender, instance, created, **kwargs):
+#     if instance.is_paid:
+#         DailyEntry.objects.update_or_create(
+#             loan_repayment=instance,
+#             defaults={
+#                 'date': instance.paid_date or instance.due_date,
+#                 'entry_type': 'income',
+#                 'category': 'loan_emi',
+#                 'amount': instance.amount_paid,
+#                 'description': f"Loan EMI Payment — Installment {instance.instalment_no} for {instance.loan.member.full_name} (Loan {instance.loan.loan_no})",
+#                 'member': instance.loan.member,
+#                 'payment_mode': instance.payment_mode,
+#                 'recorded_by': instance.recorded_by,
+#             }
+#         )
+#     else:
+#         DailyEntry.objects.filter(loan_repayment=instance).delete()
 
 
 @receiver(post_save, sender=CurryPayment)

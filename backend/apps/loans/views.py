@@ -114,8 +114,8 @@ class LoanApproveView(APIView):
                 loan=loan,
                 instalment_no=i,
                 defaults={
-                    'amount_paid': loan.emi_amount,
-                    'principal_paid': principal,
+                    'amount_paid': Decimal('0.00'),
+                    'principal_paid': Decimal('0.00'),
                     'interest_paid': Decimal('0.00'),
                     'due_date': due_date,
                     'outstanding_after': outstanding_after,
@@ -260,6 +260,7 @@ class LoanRepaymentListCreateView(generics.ListCreateAPIView):
         return LoanRepayment.objects.filter(loan_id=self.kwargs['loan_pk']).order_by('instalment_no')
 
     def create(self, request, *args, **kwargs):
+        from decimal import Decimal
         loan_pk = self.kwargs['loan_pk']
         data = request.data.copy()
         instalment_no = data.get('instalment_no')
@@ -268,27 +269,60 @@ class LoanRepaymentListCreateView(generics.ListCreateAPIView):
             return Response({'error': True, 'message': 'Installment number is required.'}, status=400)
 
         try:
-            repayment = LoanRepayment.objects.get(loan_id=loan_pk, instalment_no=int(instalment_no))
-            serializer = self.get_serializer(repayment, data=data, partial=True)
-            serializer.is_valid(raise_exception=True)
-            repayment = serializer.save(recorded_by=self.request.user, is_paid=True,
-                                        paid_date=serializer.validated_data.get('paid_date') or timezone.now().date())
-            try:
-                from apps.activities.models import ActivityLog
-                ActivityLog.objects.create(
-                    member=repayment.loan.member,
-                    activity_type='loan_repayment',
-                    description=f"Loan {repayment.loan.loan_no} — EMI {repayment.instalment_no} paid: ₹{repayment.amount_paid}.",
-                    amount=repayment.amount_paid,
-                    reference_id=str(repayment.id),
-                    reference_type='LoanRepayment',
-                    performed_by=self.request.user,
-                )
-            except Exception:
-                pass
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        except LoanRepayment.DoesNotExist:
-            return super().create(request, *args, **kwargs)
+            loan = Loan.objects.get(pk=loan_pk)
+        except Loan.DoesNotExist:
+            return Response({'error': True, 'message': 'Loan not found.'}, status=404)
+
+        amt = Decimal(str(data.get('amount_paid') or loan.emi_amount))
+        paid_date = data.get('paid_date') or timezone.now().date()
+        payment_mode = data.get('payment_mode', 'cash')
+        receipt_no = data.get('receipt_no', '')
+
+        loan.apply_loan_payment(
+            start_instalment_no=int(instalment_no),
+            amount=amt,
+            paid_date=paid_date,
+            payment_mode=payment_mode,
+            receipt_no=receipt_no,
+            recorded_by=request.user
+        )
+
+        repayment = LoanRepayment.objects.filter(loan=loan, instalment_no=int(instalment_no)).first()
+        serializer = self.get_serializer(repayment)
+
+        # Create single DailyEntry for the payment transaction
+        try:
+            from apps.collections.models import DailyEntry
+            DailyEntry.objects.create(
+                date=paid_date,
+                entry_type='income',
+                category='loan_emi',
+                amount=amt,
+                description=f"Loan EMI Payment — Installment {instalment_no} for {loan.member.full_name} (Loan {loan.loan_no})",
+                member=loan.member,
+                payment_mode=payment_mode,
+                receipt_no=receipt_no,
+                recorded_by=request.user,
+                loan_repayment=repayment
+            )
+        except Exception:
+            pass
+
+        try:
+            from apps.activities.models import ActivityLog
+            ActivityLog.objects.create(
+                member=loan.member,
+                activity_type='loan_repayment',
+                description=f"Loan {loan.loan_no} — EMI {instalment_no} payment of ₹{amt} recorded.",
+                amount=amt,
+                reference_id=str(repayment.id) if repayment else str(loan.id),
+                reference_type='LoanRepayment',
+                performed_by=self.request.user,
+            )
+        except Exception:
+            pass
+
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     def perform_update(self, serializer):
         serializer.save(recorded_by=self.request.user, is_paid=True, paid_date=serializer.validated_data.get('paid_date') or timezone.now().date())

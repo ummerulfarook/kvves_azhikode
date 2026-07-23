@@ -69,6 +69,19 @@ class ChitEnrollmentListView(generics.ListAPIView):
         ).select_related('member', 'chit_group').prefetch_related('payments')
 
 
+class AllChitEnrollmentListView(generics.ListAPIView):
+    """GET /api/enrollments/ — list all active enrollments across active schemes."""
+
+    pagination_class = None
+    serializer_class = ChitEnrollmentSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return ChitEnrollment.objects.filter(
+            chit_group__status='active'
+        ).select_related('member', 'chit_group').prefetch_related('payments')
+
+
 class ChitEnrollView(generics.CreateAPIView):
     """POST /api/chit-groups/{id}/enroll/ — enroll a member."""
 
@@ -425,31 +438,32 @@ class WelfareActiveAuctionView(APIView):
         except ChitGroup.DoesNotExist:
             return Response({'error': True, 'message': 'Welfare group not found.'}, status=404)
 
+        try:
+            target_month = int(request.query_params.get('month', group.current_month))
+        except (ValueError, TypeError):
+            target_month = group.current_month
+
         # Count remaining members who haven't won yet
         remaining_members = group.enrollments.filter(prize_won=False).count()
         eff_divs = group.effective_divisions
-        slots_to_generate = min(eff_divs, remaining_members)
+        slots_to_generate = min(eff_divs, max(1, remaining_members))
 
-        # Get or create active auction for current active month
+        # Get or create active auction for specified month
         auction, created = WelfareAuction.objects.get_or_create(
             welfare_group=group,
-            month_number=group.current_month,
+            month_number=target_month,
             defaults={
                 'installment_amount': group.monthly_instalment
             }
         )
 
-        if created or auction.slots.count() != slots_to_generate:
-            # Re-generate slots to match the current slots_to_generate
+        if created or auction.slots.count() == 0:
+            # Re-generate slots to match slots_to_generate
             auction.slots.all().delete()
-            
-            # Create slot placeholders matching the remaining count and group division labels
             labels = group.effective_division_labels
             from decimal import Decimal
             for i in range(slots_to_generate):
                 label = labels[i] if i < len(labels) else chr(ord('A') + i)
-                # If remaining_members <= 3, default all slots to winner (Full Draw)!
-                # Otherwise, first is winner, subsequent are callers.
                 default_type = 'winner' if (remaining_members <= 3 or i == 0) else 'caller'
                 
                 WelfareAuctionSlot.objects.create(
@@ -474,19 +488,27 @@ class WelfareActiveAuctionView(APIView):
         except ChitGroup.DoesNotExist:
             return Response({'error': True, 'message': 'Welfare group not found.'}, status=404)
 
+        try:
+            target_month = int(request.data.get('month_number', group.current_month))
+        except (ValueError, TypeError):
+            target_month = group.current_month
+
         auction = WelfareAuction.objects.filter(
             welfare_group=group,
-            month_number=group.current_month,
-            is_completed=False
+            month_number=target_month
         ).first()
 
         if not auction:
-            return Response({'error': True, 'message': 'No pending auction for the current month.'}, status=400)
+            auction = WelfareAuction.objects.create(
+                welfare_group=group,
+                month_number=target_month,
+                installment_amount=group.monthly_instalment
+            )
 
         slots_data = request.data.get('slots', [])
         remaining_members = group.enrollments.filter(prize_won=False).count()
         eff_divs = group.effective_divisions
-        expected_slots = min(eff_divs, remaining_members)
+        expected_slots = min(eff_divs, max(1, remaining_members))
 
         if len(slots_data) != expected_slots:
             return Response({
@@ -523,21 +545,12 @@ class WelfareActiveAuctionView(APIView):
             except ChitEnrollment.DoesNotExist:
                 return Response({'error': True, 'message': f"Enrollment {eid} not found in this welfare."}, status=400)
 
-            if enrollment.status == 'awarded':
-                return Response({
-                    'error': True, 
-                    'message': f"{enrollment.member.full_name if enrollment.member else enrollment.non_member_name} has already won/called in a previous month."
-                }, status=400)
-
             if stype == 'winner':
-                # Winner bid is always full welfare value
                 sdata['bid_amount'] = float(group.chit_value)
             else:
-                # Caller bid validation
                 if bid_amount is None:
                     return Response({'error': True, 'message': "Bid amount is required for callers."}, status=400)
                 bid_val = float(bid_amount)
-                # Allow bid_val to be equal to group.chit_value (not strictly less!)
                 if bid_val > float(group.chit_value):
                     return Response({'error': True, 'message': f"Caller bid amount cannot be greater than Welfare Value (₹{group.chit_value})."}, status=400)
                 if bid_val <= float(group.commission_rate):
@@ -554,7 +567,6 @@ class WelfareActiveAuctionView(APIView):
         from decimal import Decimal
         total_gross_bids = Decimal('0.00')
 
-        # Run inside a transaction
         from django.db import transaction
         with transaction.atomic():
             for sdata in slots_data:
@@ -563,10 +575,19 @@ class WelfareActiveAuctionView(APIView):
                 stype = sdata.get('slot_type')
                 bid_amount = Decimal(str(sdata.get('bid_amount')))
 
-                slot = WelfareAuctionSlot.objects.get(pk=slot_id, auction=auction)
+                if slot_id:
+                    slot = WelfareAuctionSlot.objects.get(pk=slot_id, auction=auction)
+                else:
+                    slot = WelfareAuctionSlot.objects.create(
+                        auction=auction,
+                        slot_type=stype,
+                        division_label=sdata.get('division_label', 'A'),
+                        bid_amount=bid_amount,
+                        commission_amount=group.commission_rate,
+                    )
+
                 enrollment = ChitEnrollment.objects.get(pk=eid)
 
-                # Calculations
                 commission = Decimal(str(sdata.get('commission_amount', group.commission_rate)))
                 service_charge = Decimal(str(sdata.get('service_charge', '0.00')))
                 surcharge = commission + service_charge
@@ -585,7 +606,6 @@ class WelfareActiveAuctionView(APIView):
                 slot.profit_earned = profit
                 slot.save()
 
-                # Update enrollment status
                 enrollment.status = 'awarded'
                 enrollment.prize_won = True
                 enrollment.prize_date = timezone.now().date()
@@ -593,49 +613,102 @@ class WelfareActiveAuctionView(APIView):
                 enrollment.surcharge_amount = surcharge
                 enrollment.service_charge = service_charge
                 enrollment.reduction_amount = discount
-                enrollment.received_date = None
                 enrollment.save()
 
                 total_gross_bids += bid_amount
 
-            # Recalculate next month installment
             next_installment = total_gross_bids / Decimal(str(group.total_members))
             
-            # Save completed auction status
             auction.is_completed = True
             auction.completed_date = timezone.now().date()
             auction.save()
 
-            # Advance current active month
-            old_month = group.current_month
-            group.monthly_instalment = next_installment
-            
-            if old_month >= group.duration_months:
-                group.status = 'completed'
-                group.end_date = timezone.now().date()
-            else:
-                group.current_month = old_month + 1
-                # Generate installment records for all active/awarded members for next month
-                from dateutil.relativedelta import relativedelta
-                due_date = group.start_date + relativedelta(months=old_month)
-                
-                # All members enrolled in this group (except defaulted/transferred)
-                active_enrollments = group.enrollments.filter(status__in=['active', 'awarded'])
-                for enroll in active_enrollments:
-                    ChitPayment.objects.update_or_create(
-                        enrollment=enroll,
-                        month_number=old_month + 1,
-                        defaults={
-                            'installment_amount': next_installment,
-                            'amount_paid': Decimal('0.00'),
-                            'due_date': due_date,
-                            'is_paid': False,
-                        }
-                    )
-            group.save()
+            if target_month == group.current_month:
+                old_month = group.current_month
+                group.monthly_instalment = next_installment
+                if old_month >= group.duration_months:
+                    group.status = 'completed'
+                    group.end_date = timezone.now().date()
+                else:
+                    group.current_month = old_month + 1
+                    from dateutil.relativedelta import relativedelta
+                    due_date = group.start_date + relativedelta(months=old_month)
+                    active_enrollments = group.enrollments.filter(status__in=['active', 'awarded'])
+                    for enroll in active_enrollments:
+                        ChitPayment.objects.update_or_create(
+                            enrollment=enroll,
+                            month_number=old_month + 1,
+                            defaults={
+                                'installment_amount': next_installment,
+                                'amount_paid': Decimal('0.00'),
+                                'due_date': due_date,
+                                'is_paid': False,
+                            }
+                        )
+                group.save()
 
         return Response({
             'success': True, 
-            'message': 'Auction completed successfully.',
+            'message': f'Month {target_month} auction completed successfully.',
             'next_installment': str(next_installment)
+        })
+
+
+class ChitClearDuesUpToMonthView(APIView):
+    """POST /api/enrollments/{pk}/clear-dues/ — Clear all pending payments up to target month."""
+    permission_classes = [IsAuthenticated, IsAdminOrStaffOrReadOnly]
+
+    def post(self, request, pk):
+        try:
+            enrollment = ChitEnrollment.objects.get(pk=pk)
+        except ChitEnrollment.DoesNotExist:
+            return Response({'error': True, 'message': 'Enrollment not found.'}, status=404)
+
+        up_to_month = int(request.data.get('up_to_month', 1))
+        paid_date = request.data.get('paid_date') or timezone.now().date()
+        payment_mode = request.data.get('payment_mode', 'cash')
+        receipt_no = request.data.get('receipt_no', '')
+
+        unpaid_payments = enrollment.payments.filter(
+            month_number__lte=up_to_month,
+            is_paid=False
+        ).order_by('month_number')
+
+        from apps.collections.models import DailyEntry
+        from django.db import transaction
+
+        count = 0
+        total_paid = 0
+
+        with transaction.atomic():
+            for p in unpaid_payments:
+                due_amt = p.installment_amount - p.amount_paid
+                p.is_paid = True
+                p.amount_paid = p.installment_amount
+                p.paid_date = paid_date
+                p.payment_mode = payment_mode
+                p.receipt_no = receipt_no
+                p.recorded_by = request.user
+                p.save()
+
+                count += 1
+                total_paid += due_amt
+
+                DailyEntry.objects.create(
+                    chit_payment=p,
+                    date=paid_date,
+                    entry_type='income',
+                    category='welfare_payment',
+                    amount=due_amt,
+                    description=f"Welfare Payment (Clear Dues up to Month {up_to_month}) — Month {p.month_number} for {enrollment.member.full_name if enrollment.member else enrollment.non_member_name}",
+                    member=enrollment.member,
+                    payment_mode=payment_mode,
+                    recorded_by=request.user,
+                )
+
+        return Response({
+            'success': True,
+            'message': f"Successfully cleared {count} months of dues up to Month {up_to_month}.",
+            'count': count,
+            'total_paid': str(total_paid)
         })

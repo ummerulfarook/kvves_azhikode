@@ -41,9 +41,9 @@ class ChitPaymentOverdueSerializer(serializers.ModelSerializer):
     is_overdue = serializers.SerializerMethodField()
     days_overdue = serializers.SerializerMethodField()
     enrollment_id = serializers.IntegerField(source='enrollment.id', read_only=True)
-    member_name = serializers.CharField(source='enrollment.member.full_name', read_only=True)
-    member_no = serializers.CharField(source='enrollment.member.member_no', read_only=True)
-    member_id = serializers.IntegerField(source='enrollment.member.id', read_only=True)
+    member_name = serializers.SerializerMethodField()
+    member_no = serializers.SerializerMethodField()
+    member_id = serializers.SerializerMethodField()
     group_name = serializers.CharField(source='enrollment.chit_group.group_name', read_only=True)
     group_no = serializers.CharField(source='enrollment.chit_group.group_no', read_only=True)
 
@@ -51,7 +51,7 @@ class ChitPaymentOverdueSerializer(serializers.ModelSerializer):
         model = ChitPayment
         fields = [
             'id', 'enrollment_id', 'member_name', 'member_no', 'member_id',
-            'group_name', 'group_no', 'month_number', 'amount_paid',
+            'group_name', 'group_no', 'month_number', 'installment_amount', 'amount_paid',
             'due_date', 'is_overdue', 'days_overdue', 'is_paid',
         ]
 
@@ -60,6 +60,23 @@ class ChitPaymentOverdueSerializer(serializers.ModelSerializer):
 
     def get_days_overdue(self, obj):
         return obj.days_overdue
+
+    def get_member_name(self, obj):
+        if obj.enrollment and obj.enrollment.member:
+            return obj.enrollment.member.full_name
+        if obj.enrollment and obj.enrollment.non_member_name:
+            return f"{obj.enrollment.non_member_name} (Non-Member)"
+        return 'Non-Member'
+
+    def get_member_no(self, obj):
+        if obj.enrollment and obj.enrollment.member:
+            return obj.enrollment.member.member_no
+        return 'Non-Member'
+
+    def get_member_id(self, obj):
+        if obj.enrollment and obj.enrollment.member:
+            return obj.enrollment.member.id
+        return None
 
 
 class ChitEnrollmentSerializer(serializers.ModelSerializer):
@@ -85,6 +102,18 @@ class ChitEnrollmentSerializer(serializers.ModelSerializer):
         validators = []  # Disable automatic unique-together validator
         extra_kwargs = {
             'chit_group': {'required': False},
+            'ticket_number': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'enrollment_date': {'required': False, 'allow_null': True},
+            'guarantor1': {'required': False, 'allow_null': True},
+            'guarantor2': {'required': False, 'allow_null': True},
+            'member': {'required': False, 'allow_null': True},
+            'non_member_name': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'non_member_phone': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'non_member_address': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'guarantor1_non_member_name': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'guarantor1_non_member_phone': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'guarantor2_non_member_name': {'required': False, 'allow_blank': True, 'allow_null': True},
+            'guarantor2_non_member_phone': {'required': False, 'allow_blank': True, 'allow_null': True},
         }
 
     def get_guarantor1_name(self, obj):
@@ -116,6 +145,18 @@ class ChitEnrollmentSerializer(serializers.ModelSerializer):
         if obj.member:
             return obj.member.member_no
         return 'Non-Member'
+
+    def create(self, validated_data):
+        char_fields = [
+            'non_member_name', 'non_member_phone', 'non_member_address',
+            'guarantor1_non_member_name', 'guarantor1_non_member_phone',
+            'guarantor2_non_member_name', 'guarantor2_non_member_phone',
+            'ticket_number', 'division_label', 'remarks', 'cheque_number'
+        ]
+        for field in char_fields:
+            if field not in validated_data or validated_data[field] is None:
+                validated_data[field] = ""
+        return super().create(validated_data)
 
     def validate(self, attrs):
         view = self.context.get('view')
@@ -175,22 +216,47 @@ class ChitEnrollmentSerializer(serializers.ModelSerializer):
                     'division_label': f"Invalid division. Choose from {', '.join(valid_labels)}."
                 })
 
-        if not attrs.get('ticket_number') and not (self.instance and self.instance.ticket_number) and division_label:
-            # Auto-assign ticket number based on sequence
-            enrollments = group.enrollments.filter(division_label=division_label)
+        if not attrs.get('enrollment_date'):
+            from django.utils import timezone
+            attrs['enrollment_date'] = timezone.now().date()
+
+        # Clean CharFields to avoid IntegrityError (NOT NULL constraint failed)
+        char_fields = [
+            'non_member_name', 'non_member_phone', 'non_member_address',
+            'guarantor1_non_member_name', 'guarantor1_non_member_phone',
+            'guarantor2_non_member_name', 'guarantor2_non_member_phone',
+            'ticket_number', 'division_label', 'remarks', 'cheque_number'
+        ]
+        for field in char_fields:
+            if field in attrs and attrs[field] is None:
+                attrs[field] = ""
+            elif field not in attrs and not self.instance:
+                attrs[field] = ""
+
+        if not attrs.get('ticket_number') and not (self.instance and self.instance.ticket_number):
+            from re import search
+            enrollments = group.enrollments.all()
             max_num = 0
             for e in enrollments:
-                parts = e.ticket_number.split('-')
-                if len(parts) == 2:
-                    try:
-                        num = int(parts[1])
+                if e.ticket_number:
+                    match = search(r'(\d+)', str(e.ticket_number))
+                    if match:
+                        num = int(match.group(1))
                         if num > max_num:
                             max_num = num
-                    except ValueError:
-                        pass
-            attrs['ticket_number'] = f"{division_label}-{(max_num + 1):03d}"
+            attrs['ticket_number'] = str(max_num + 1)
 
-        # 1. Non-member validation
+        ticket_no = attrs.get('ticket_number') or (self.instance.ticket_number if self.instance else None)
+        if ticket_no and group:
+            qs_ticket = ChitEnrollment.objects.filter(chit_group=group, ticket_number=ticket_no)
+            if self.instance:
+                qs_ticket = qs_ticket.exclude(pk=self.instance.pk)
+            if qs_ticket.exists():
+                raise serializers.ValidationError({
+                    'ticket_number': f'Token / Ticket number {ticket_no} is already assigned in this welfare scheme.'
+                })
+
+        # Non-member validation
         guarantor1_non = attrs.get('guarantor1_non_member_name')
         if not member:
             if not non_member_name:
@@ -204,29 +270,6 @@ class ChitEnrollmentSerializer(serializers.ModelSerializer):
             if guarantor1 and guarantor2 and guarantor1 == guarantor2:
                 raise serializers.ValidationError({
                     'guarantor2': 'Guarantor 1 and Guarantor 2 must be different.'
-                })
-        else:
-            # If standard member, check duplicate enrollment in this welfare scheme
-            qs_member = ChitEnrollment.objects.filter(chit_group=group, member=member)
-            if self.instance:
-                qs_member = qs_member.exclude(pk=self.instance.pk)
-            if qs_member.exists():
-                raise serializers.ValidationError({
-                    'member': 'This person is already enrolled in this welfare scheme.'
-                })
-
-        # 2. Check duplicate non-member enrollment by name and phone
-        if not member and non_member_name:
-            qs_non_member = ChitEnrollment.objects.filter(
-                chit_group=group,
-                non_member_name=non_member_name,
-                non_member_phone=non_member_phone
-            )
-            if self.instance:
-                qs_non_member = qs_non_member.exclude(pk=self.instance.pk)
-            if qs_non_member.exists():
-                raise serializers.ValidationError({
-                    'non_member_name': 'This person (non-member) already exists in this welfare scheme.'
                 })
 
         # 3. Ticket number uniqueness in this group

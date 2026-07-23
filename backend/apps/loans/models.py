@@ -80,12 +80,85 @@ class Loan(models.Model):
 
     def update_outstanding_balance(self):
         from decimal import Decimal
-        paid_repayments = self.repayments.filter(is_paid=True)
-        total_principal_paid = sum(r.principal_paid for r in paid_repayments)
+        repayments = list(self.repayments.order_by('instalment_no'))
+        running_balance = self.loan_amount
+        total_principal_paid = Decimal('0.00')
+
+        for r in repayments:
+            paid_amt = r.amount_paid or Decimal('0.00')
+            if r.is_paid:
+                r.principal_paid = paid_amt
+                r.interest_paid = Decimal('0.00')
+                running_balance -= paid_amt
+                total_principal_paid += paid_amt
+            else:
+                running_balance -= paid_amt
+                total_principal_paid += paid_amt
+
+            if running_balance < Decimal('0.00'):
+                running_balance = Decimal('0.00')
+            r.outstanding_after = running_balance
+            r.save(update_fields=['principal_paid', 'interest_paid', 'outstanding_after'], skip_update=True)
+
         self.outstanding_balance = max(self.loan_amount - total_principal_paid, Decimal('0.00'))
-        if self.outstanding_balance == 0 and self.status == 'active':
+        if self.outstanding_balance == Decimal('0.00') and self.status == 'active':
             self.status = 'closed'
+            for r in repayments:
+                if not r.is_paid:
+                    r.is_paid = True
+                    r.amount_paid = Decimal('0.00')
+                    r.principal_paid = Decimal('0.00')
+                    r.outstanding_after = Decimal('0.00')
+                    r.save(update_fields=['is_paid', 'amount_paid', 'principal_paid', 'outstanding_after'], skip_update=True)
+
         self.save(update_fields=['outstanding_balance', 'status'])
+
+    def apply_loan_payment(self, start_instalment_no, amount, paid_date=None, payment_mode='cash', receipt_no='', recorded_by=None):
+        from decimal import Decimal
+        from django.utils import timezone
+        if not paid_date:
+            paid_date = timezone.now().date()
+
+        remaining_payment = Decimal(str(amount))
+        repayments = self.repayments.filter(instalment_no__gte=start_instalment_no).order_by('instalment_no')
+
+        for r in repayments:
+            if remaining_payment <= Decimal('0.00'):
+                break
+
+            needed = r.loan.emi_amount - (r.amount_paid if r.is_paid else Decimal('0.00'))
+            if needed <= Decimal('0.00'):
+                continue
+
+            if remaining_payment >= needed:
+                pay_here = needed
+                remaining_payment -= needed
+                r.amount_paid = (r.amount_paid or Decimal('0.00')) + pay_here
+                r.principal_paid = r.amount_paid
+                r.is_paid = True
+                r.paid_date = paid_date
+                r.payment_mode = payment_mode
+                if receipt_no:
+                    r.receipt_no = receipt_no
+                if recorded_by:
+                    r.recorded_by = recorded_by
+                r.save(skip_update=True)
+            else:
+                pay_here = remaining_payment
+                remaining_payment = Decimal('0.00')
+                r.amount_paid = (r.amount_paid or Decimal('0.00')) + pay_here
+                r.principal_paid = r.amount_paid
+                r.paid_date = paid_date
+                r.payment_mode = payment_mode
+                if receipt_no:
+                    r.receipt_no = receipt_no
+                if recorded_by:
+                    r.recorded_by = recorded_by
+                if r.amount_paid >= r.loan.emi_amount:
+                    r.is_paid = True
+                r.save(skip_update=True)
+
+        self.update_outstanding_balance()
 
 
 class LoanRepayment(models.Model):
@@ -118,6 +191,7 @@ class LoanRepayment(models.Model):
         return f"Instalment {self.instalment_no} — {self.loan.loan_no}"
 
     def save(self, *args, **kwargs):
+        skip_update = kwargs.pop('skip_update', False)
         from decimal import Decimal
         if self.is_paid:
             if not self.amount_paid:
@@ -128,7 +202,8 @@ class LoanRepayment(models.Model):
             self.principal_paid = self.amount_paid
         
         super().save(*args, **kwargs)
-        self.loan.update_outstanding_balance()
+        if not skip_update:
+            self.loan.update_outstanding_balance()
 
     def delete(self, *args, **kwargs):
         loan = self.loan

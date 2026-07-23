@@ -1,23 +1,27 @@
 import datetime
 from django.utils import timezone
+from django.db.models import Q
 from dateutil.relativedelta import relativedelta
 from apps.dues.models import MasavariPayment
 from apps.members.models import Member
 
 def check_member_masavari_statuses():
-    """Checks all active members' Masavari payments. If a member hasn't paid in the last 1 year
-    (12 months), and they joined more than 1 year ago, mark them as inactive.
+    """Checks all active members' Masavari payments. If a member hasn't paid for any month
+    in the last 1 year (12 months), and they joined more than 1 year ago, mark them as inactive.
     """
     today = timezone.now().date()
-    one_year_ago = today - relativedelta(months=12)
+    cutoff_date = today - relativedelta(months=12)
+    cutoff_year = cutoff_date.year
+    cutoff_month = cutoff_date.month
 
     # Fetch active members who joined more than a year ago
-    active_members = Member.objects.filter(status='active', joining_date__lt=one_year_ago)
+    active_members = Member.objects.filter(status='active', joining_date__lt=cutoff_date)
     
-    # Get all member IDs who HAVE paid in the last 12 months
+    # Get all member IDs who HAVE a paid Masavari payment for a month/year >= cutoff
     paid_member_ids = MasavariPayment.objects.filter(
-        status='paid',
-        paid_date__gte=one_year_ago
+        status='paid'
+    ).filter(
+        Q(year__gt=cutoff_year) | Q(year=cutoff_year, month__gte=cutoff_month)
     ).values_list('member_id', flat=True).distinct()
 
     # Inactive members are those who are active but not in paid_member_ids
@@ -26,7 +30,9 @@ def check_member_masavari_statuses():
     if to_deactivate.exists():
         for m in to_deactivate:
             m.status = 'inactive'
-            m.remarks = (m.remarks or "") + f"\nAuto-deactivated on {today} due to non-payment of Masavari for 1+ years."
+            remarks = m.remarks or ""
+            if "Auto-deactivated" not in remarks:
+                m.remarks = (remarks + f"\nAuto-deactivated on {today} due to non-payment of Masavari for 1+ years.").strip()
             m.save()
 
 

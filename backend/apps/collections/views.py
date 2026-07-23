@@ -65,20 +65,21 @@ class DailyEntryListCreateView(generics.ListCreateAPIView):
         amount = float(amount)
 
         if category == 'welfare_payment':
-            group_id = data.get('welfare_group')
+            enrollment_id = data.get('welfare_group') or data.get('enrollment')
             month_number = data.get('month_number')
-            if not member_id or not group_id or not month_number:
-                return Response({'error': True, 'message': 'Member, Welfare Scheme, and Month Number are required.'}, status=400)
+            if not enrollment_id or not month_number:
+                return Response({'error': True, 'message': 'Welfare Scheme enrollment and Month Number are required.'}, status=400)
 
             from apps.chits.models import ChitEnrollment, ChitPayment
+            enrollment = None
             try:
-                enrollment = ChitEnrollment.objects.filter(pk=group_id, member_id=member_id).first()
-                if not enrollment:
-                    enrollment = ChitEnrollment.objects.get(member_id=member_id, chit_group_id=group_id)
+                enrollment = ChitEnrollment.objects.select_related('member', 'chit_group').get(pk=enrollment_id)
             except (ChitEnrollment.DoesNotExist, ValueError):
-                return Response({'error': True, 'message': 'Member is not enrolled in this welfare scheme.'}, status=400)
-            except ChitEnrollment.MultipleObjectsReturned:
-                return Response({'error': True, 'message': 'Multiple enrollments found for this member in the welfare scheme. Please contact admin.'}, status=400)
+                if member_id:
+                    enrollment = ChitEnrollment.objects.filter(member_id=member_id, chit_group_id=enrollment_id).first()
+
+            if not enrollment:
+                return Response({'error': True, 'message': 'Selected welfare enrollment could not be found.'}, status=400)
 
             from decimal import Decimal
             payment, created = ChitPayment.objects.get_or_create(
@@ -106,7 +107,7 @@ class DailyEntryListCreateView(generics.ListCreateAPIView):
                 entry_type='income',
                 category='welfare_payment',
                 amount=amount_dec,
-                description=f"Welfare Payment — Month {payment.month_number} for {enrollment.member.full_name if enrollment.member else enrollment.non_member_name}",
+                description=f"Welfare Payment — Month {payment.month_number} for {enrollment.member.full_name if enrollment.member else enrollment.non_member_name} (Ticket #{enrollment.ticket_number})",
                 member=enrollment.member,
                 payment_mode=payment_mode,
                 recorded_by=request.user,
@@ -128,30 +129,33 @@ class DailyEntryListCreateView(generics.ListCreateAPIView):
             except Loan.DoesNotExist:
                 return Response({'error': True, 'message': 'Loan not found for this member.'}, status=400)
 
-            repayment, created = LoanRepayment.objects.get_or_create(
-                loan=loan,
-                instalment_no=int(instalment_no),
-                defaults={
-                    'amount_paid': amount,
-                    'principal_paid': 0,
-                    'interest_paid': 0,
-                    'due_date': date_str,
-                    'outstanding_after': loan.outstanding_balance,
-                }
+            loan.apply_loan_payment(
+                start_instalment_no=int(instalment_no),
+                amount=amount,
+                paid_date=date_str,
+                payment_mode=payment_mode,
+                recorded_by=request.user
             )
-            repayment.is_paid = True
-            repayment.amount_paid = amount
-            repayment.paid_date = date_str
-            repayment.payment_mode = payment_mode
-            repayment.recorded_by = request.user
-            repayment.save()
 
-            entry = DailyEntry.objects.filter(loan_repayment=repayment).first()
+            repayment = LoanRepayment.objects.filter(loan=loan, instalment_no=int(instalment_no)).first()
+            entry = DailyEntry.objects.filter(loan_repayment=repayment).first() if repayment else None
             if entry:
                 serializer = self.get_serializer(entry)
                 return Response(serializer.data, status=status.HTTP_201_CREATED)
             else:
-                return Response({'message': 'Loan repayment recorded, but collection log entry not found.'}, status=201)
+                entry = DailyEntry.objects.create(
+                    date=date_str,
+                    entry_type='income',
+                    category='loan_emi',
+                    amount=amount,
+                    description=f"Loan EMI Payment — Installment {instalment_no} for {loan.member.full_name} (Loan {loan.loan_no})",
+                    member=loan.member,
+                    payment_mode=payment_mode,
+                    recorded_by=request.user,
+                    loan_repayment=repayment,
+                )
+                serializer = self.get_serializer(entry)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
 
         elif category in ['registration_fee', 'share_capital']:
             if not member_id:

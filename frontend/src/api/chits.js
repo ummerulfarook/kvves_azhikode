@@ -8,6 +8,7 @@ export const patchChitGroup = (id, data) => api.patch(`/chit-groups/${id}/`, dat
 export const deleteChitGroup = (id) => api.delete(`/chit-groups/${id}/`)
 
 export const getEnrollments = (groupId) => api.get(`/chit-groups/${groupId}/enrollments/`)
+export const getAllEnrollments = (params) => api.get('/enrollments/', { params })
 export const enrollMember = (groupId, data) => api.post(`/chit-groups/${groupId}/enroll/`, data)
 export const updateEnrollment = (eid, data) => api.put(`/enrollments/${eid}/`, data)
 export const patchEnrollment = (eid, data) => api.patch(`/enrollments/${eid}/`, data)
@@ -18,7 +19,8 @@ export const recordPayment = (enrollmentId, data) => api.post(`/enrollments/${en
 export const updatePayment = (pid, data) => api.put(`/payments/${pid}/`, data)
 
 export const getOverdueChits = (params) => api.get('/chits/overdue/', { params })
+export const clearDuesUpToMonth = (enrollmentId, data) => api.post(`/enrollments/${enrollmentId}/clear-dues/`, data)
 
-export const getActiveAuction = (groupId) => api.get(`/chit-groups/${groupId}/active-auction/`)
+export const getActiveAuction = (groupId, month) => api.get(`/chit-groups/${groupId}/active-auction/`, { params: month ? { month } : {} })
 export const completeActiveAuction = (groupId, data) => api.post(`/chit-groups/${groupId}/active-auction/complete/`, data)
 export const getWelfareAuctions = (groupId) => api.get(`/chit-groups/${groupId}/auctions/`)

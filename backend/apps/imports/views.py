@@ -88,6 +88,9 @@ class MemberImportView(APIView):
                     if masavari_paid_till:
                         from apps.members.utils import populate_masavari_payments_up_to
                         populate_masavari_payments_up_to(member, masavari_paid_till, recorded_by=request.user)
+
+                from apps.members.utils import check_member_masavari_statuses
+                check_member_masavari_statuses()
         except Exception as e:
             return Response({'error': True, 'message': f'Import failed: {str(e)}'}, status=500)
 

@@ -57,9 +57,14 @@ const WelfarePage = () => {
   const [activeAuction, setActiveAuction] = useState(null)
   const [auctionLoading, setAuctionLoading] = useState(false)
   const [auctionModal, setAuctionModal] = useState(false)
+  const [selectedAuctionMonth, setSelectedAuctionMonth] = useState(1)
   const [auctionSlots, setAuctionSlots] = useState([])
   const [auctionsHistory, setAuctionsHistory] = useState([])
   const [historyLoading, setHistoryLoading] = useState(false)
+
+  // Clear Dues Up To Month states
+  const [clearDuesModal, setClearDuesModal] = useState({ open: false, enrollment: null })
+  const [clearDuesForm] = Form.useForm()
 
   // Edit Payout & Service Charge states
   const [editPayoutModal, setEditPayoutModal] = useState(false)
@@ -77,6 +82,24 @@ const WelfarePage = () => {
   const [editGroupModal, setEditGroupModal] = useState(false)
   const [editingGroup, setEditingGroup] = useState(null)
   const [editGroupForm] = Form.useForm()
+
+  // Top-level Form.useWatch calls (Must stay unconditional at top-level of component)
+  const watchChitValue = Form.useWatch('chit_value', groupForm)
+  const watchDivisions = Form.useWatch('number_of_divisions', groupForm)
+  const watchTotalMembers = Form.useWatch('total_members', groupForm)
+
+  const isRegisteredMember = Form.useWatch('is_registered_member', enrollForm)
+  const guarantor1Type = Form.useWatch('guarantor1_type', enrollForm)
+  const guarantor2Type = Form.useWatch('guarantor2_type', enrollForm)
+  const enrollMember = Form.useWatch('member', enrollForm)
+  const enrollGuarantor1 = Form.useWatch('guarantor1', enrollForm)
+  const enrollGuarantor2 = Form.useWatch('guarantor2', enrollForm)
+
+  const isRegisteredMemberEdit = Form.useWatch('is_registered_member', editMemberForm)
+  const guarantor1TypeEdit = Form.useWatch('guarantor1_type', editMemberForm)
+  const guarantor2TypeEdit = Form.useWatch('guarantor2_type', editMemberForm)
+
+  const handoverPaymentMode = Form.useWatch('payout_payment_mode', handoverForm)
 
   const openEditPayoutModal = (enrollment) => {
     setEditingEnrollment(enrollment)
@@ -158,15 +181,6 @@ const WelfarePage = () => {
       setSubmitting(false)
     }
   }
-
-  const watchChitValue = Form.useWatch('chit_value', groupForm)
-  const watchDivisions = Form.useWatch('number_of_divisions', groupForm)
-  const watchTotalMembers = Form.useWatch('total_members', groupForm)
-
-  const enrollMember = Form.useWatch('member', enrollForm)
-  const enrollGuarantor1 = Form.useWatch('guarantor1', enrollForm)
-  const enrollGuarantor2 = Form.useWatch('guarantor2', enrollForm)
-  const handoverPaymentMode = Form.useWatch('payout_payment_mode', handoverForm)
 
   useEffect(() => {
     loadGroups()
@@ -538,11 +552,13 @@ const WelfarePage = () => {
     }
   }
 
-  const openAuctionModal = async () => {
+  const openAuctionModal = async (monthNum) => {
     if (!selectedGroup) return
+    const targetMonth = monthNum || selectedGroup.current_month
+    setSelectedAuctionMonth(targetMonth)
     setSubmitting(true)
     try {
-      const res = await chitsApi.getActiveAuction(selectedGroup.id)
+      const res = await chitsApi.getActiveAuction(selectedGroup.id, targetMonth)
       setActiveAuction(res.data)
       if (res.data?.slots) {
         setAuctionSlots(res.data.slots.map(s => ({
@@ -557,7 +573,7 @@ const WelfarePage = () => {
       }
       setAuctionModal(true)
     } catch (_) {
-      message.error('Failed to load active auction details.')
+      message.error('Failed to load auction details for Month ' + targetMonth)
     } finally {
       setSubmitting(false)
     }
@@ -594,8 +610,11 @@ const WelfarePage = () => {
 
     setSubmitting(true)
     try {
-      await chitsApi.completeActiveAuction(selectedGroup.id, { slots: auctionSlots })
-      message.success('Monthly auction completed successfully!')
+      await chitsApi.completeActiveAuction(selectedGroup.id, {
+        month_number: selectedAuctionMonth,
+        slots: auctionSlots
+      })
+      message.success(`Month ${selectedAuctionMonth} auction details saved successfully!`)
       setAuctionModal(false)
       await loadGroups()
       if (selectedGroup) {
@@ -604,6 +623,41 @@ const WelfarePage = () => {
       }
     } catch (err) {
       message.error(err?.response?.data?.message || 'Failed to complete monthly auction.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const openClearDuesModal = (enrollment) => {
+    clearDuesForm.resetFields()
+    clearDuesForm.setFieldsValue({
+      up_to_month: selectedGroup?.current_month || 1,
+      payment_mode: 'cash',
+      paid_date: dayjs(),
+      receipt_no: '',
+    })
+    setClearDuesModal({ open: true, enrollment })
+  }
+
+  const handleClearDuesSubmit = async () => {
+    if (!clearDuesModal.enrollment) return
+    setSubmitting(true)
+    try {
+      const values = await clearDuesForm.validateFields()
+      const res = await chitsApi.clearDuesUpToMonth(clearDuesModal.enrollment.id, {
+        up_to_month: values.up_to_month,
+        paid_date: values.paid_date?.format('YYYY-MM-DD') || dayjs().format('YYYY-MM-DD'),
+        payment_mode: values.payment_mode,
+        receipt_no: values.receipt_no || '',
+      })
+      message.success(res.data?.message || 'Dues cleared successfully!')
+      setClearDuesModal({ open: false, enrollment: null })
+      if (selectedGroup) {
+        loadEnrollments(selectedGroup.id)
+      }
+      loadOverdue()
+    } catch (err) {
+      message.error(err?.response?.data?.message || 'Failed to clear dues.')
     } finally {
       setSubmitting(false)
     }
@@ -818,9 +872,9 @@ const WelfarePage = () => {
           },
         ].map((s) => (
           <Col key={s.label} xs={12} sm={8} md={3}>
-            <Card size="small" style={{ textAlign: 'center', borderColor: '#e0e7ff', background: '#f8faff' }}
+            <Card size="small" style={{ textAlign: 'center', borderColor: '#334155', background: '#1e293b' }}
               bodyStyle={{ padding: '10px 8px' }}>
-              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 2 }}>{s.label}</div>
+              <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>{s.label}</div>
               <div style={{ fontWeight: 700, color: s.color, fontSize: 13 }}>{s.value}</div>
             </Card>
           </Col>
@@ -856,7 +910,7 @@ const WelfarePage = () => {
                 <strong>Month {group.current_month} Auction is Pending.</strong> Enter winner and caller bids to complete the month and recalculate the next month installment.
               </span>
               {canWrite && (
-                <Button type="primary" size="small" style={{ background: '#10b981', borderColor: '#10b981' }} onClick={openAuctionModal}>
+                <Button type="primary" size="small" style={{ background: '#10b981', borderColor: '#10b981' }} onClick={() => openAuctionModal(group.current_month)}>
                   Launch Month {group.current_month} Auction
                 </Button>
               )}
@@ -891,8 +945,18 @@ const WelfarePage = () => {
                   pagination={{ pageSize: 20 }}
                   scroll={{ x: true }}
                   columns={[
-                    { title: 'Ticket', dataIndex: 'ticket_number', width: 80,
-                      render: (v) => <Tag color="blue">{v}</Tag> },
+                    {
+                      title: 'Token / Ticket',
+                      dataIndex: 'ticket_number',
+                      width: 120,
+                      sorter: (a, b) => {
+                        const numA = parseInt(String(a.ticket_number || '').replace(/\D/g, ''), 10) || 0;
+                        const numB = parseInt(String(b.ticket_number || '').replace(/\D/g, ''), 10) || 0;
+                        return numA - numB;
+                      },
+                      defaultSortOrder: 'ascend',
+                      render: (v) => <Tag color="blue">#{v}</Tag>
+                    },
                     {
                       title: 'Member', key: 'member',
                       render: (_, row) => (
@@ -954,7 +1018,7 @@ const WelfarePage = () => {
                       }
                     },
                     {
-                      title: 'Actions', key: 'actions', fixed: 'right', width: 340,
+                      title: 'Actions', key: 'actions', fixed: 'right', width: 440,
                       render: (_, row) => {
                         const readyDate = dayjs(row.prize_date).add(group.processing_days || 7, 'day');
                         const daysLeft = readyDate.diff(dayjs(), 'day');
@@ -970,9 +1034,14 @@ const WelfarePage = () => {
                               <Tag color="orange">Non-Member</Tag>
                             )}
                             {canWrite && (
-                              <Button size="small" icon={<EditOutlined />} onClick={() => openEditMemberModal(row)}>
-                                Edit Details
-                              </Button>
+                              <>
+                                <Button size="small" icon={<EditOutlined />} onClick={() => openEditMemberModal(row)}>
+                                  Edit Details
+                                </Button>
+                                <Button size="small" type="primary" style={{ backgroundColor: '#0284c7', borderColor: '#0284c7' }} icon={<CheckCircleOutlined />} onClick={() => openClearDuesModal(row)}>
+                                  Pay Dues Till Month
+                                </Button>
+                              </>
                             )}
                             {isEditable && canWrite && (
                               <Button size="small" type="primary" onClick={() => openEditPayoutModal(row)}>
@@ -1075,12 +1144,12 @@ const WelfarePage = () => {
       {/* Active Schemes Summary Banner */}
       {activeGroups.length > 0 && (
         <Card
-          style={{ marginBottom: 20, background: 'linear-gradient(135deg, #eff6ff, #dbeafe)', border: '1px solid #bfdbfe' }}
+          style={{ marginBottom: 20, background: 'linear-gradient(135deg, #1e293b, #0f172a)', border: '1px solid #334155' }}
           bodyStyle={{ padding: '16px 20px' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <SafetyOutlined style={{ color: '#2563eb', fontSize: 18 }} />
-            <Text style={{ fontWeight: 700, fontSize: 15, color: '#1e40af' }}>Active Welfare Schemes</Text>
+            <SafetyOutlined style={{ color: '#60a5fa', fontSize: 18 }} />
+            <Text style={{ fontWeight: 700, fontSize: 15, color: '#93c5fd' }}>Active Welfare Schemes</Text>
             <Tag color="blue" style={{ borderRadius: 20 }}>{activeGroups.length} active</Tag>
           </div>
           <Row gutter={[12, 8]}>
@@ -1088,22 +1157,22 @@ const WelfarePage = () => {
               <Col key={g.id} xs={24} sm={12} md={8} lg={6}>
                 <div
                   style={{
-                    background: 'white', border: '1px solid #bfdbfe', borderRadius: 10,
+                    background: '#1e293b', border: '1px solid #334155', borderRadius: 10,
                     padding: '10px 14px', cursor: 'pointer', transition: 'all 0.2s',
-                    boxShadow: '0 2px 6px rgba(37,99,235,0.08)',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
                   }}
                   onClick={() => { setActiveTab('groups'); setSelectedGroup(g) }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div style={{
                       width: 28, height: 28, borderRadius: '50%',
-                      background: '#eff6ff', border: '1px solid #bfdbfe',
+                      background: '#0f172a', border: '1px solid #334155',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 12, fontWeight: 700, color: '#2563eb',
+                      fontSize: 12, fontWeight: 700, color: '#60a5fa',
                     }}>{idx + 1}</div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: '#1e40af' }}>{g.group_name}</div>
-                      <div style={{ fontSize: 11, color: '#6b7280' }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: '#93c5fd' }}>{g.group_name}</div>
+                      <div style={{ fontSize: 11, color: '#94a3b8' }}>
                         {g.group_no} · {formatCurrency(g.monthly_instalment)}/mo · {g.enrolled_count || 0} members
                       </div>
                     </div>
@@ -1192,7 +1261,7 @@ const WelfarePage = () => {
         okText="Create Scheme"
         width={640}
       >
-        <Form form={groupForm} layout="vertical" initialValues={{ number_of_divisions: 2, division_labels: 'A, B', status: 'upcoming', commission_rate: 0 }}>
+        <Form form={groupForm} layout="vertical" onFinish={handleCreateGroup} onSubmit={(e) => e.preventDefault()} initialValues={{ number_of_divisions: 2, division_labels: 'A, B', status: 'upcoming', commission_rate: 0 }}>
           <Row gutter={16}>
             <Col xs={12}>
               <Form.Item label="Welfare No" name="group_no" rules={[{ required: true, message: 'Required' }]}>
@@ -1260,11 +1329,11 @@ const WelfarePage = () => {
               </Form.Item>
             </Col>
             <Col xs={24}>
-              <Card style={{ background: '#f0fdf4', borderColor: '#bbf7d0', textAlign: 'center', marginTop: 10 }}>
-                <Text style={{ fontSize: 13, color: '#166534', display: 'block', fontWeight: 600 }}>
+              <Card style={{ background: '#022c22', borderColor: '#065f46', textAlign: 'center', marginTop: 10 }}>
+                <Text style={{ fontSize: 13, color: '#34d399', display: 'block', fontWeight: 600 }}>
                   Calculated Monthly Installment (Month 1):
                 </Text>
-                <Title level={4} style={{ color: '#15803d', margin: '4px 0 0' }}>
+                <Title level={4} style={{ color: '#10b981', margin: '4px 0 0' }}>
                   ₹{(watchChitValue && watchTotalMembers)
                     ? Math.round((watchChitValue * ((watchDivisions === undefined || watchDivisions === null || watchDivisions < 1) ? 1 : watchDivisions)) / watchTotalMembers).toLocaleString('en-IN')
                     : '0'}
@@ -1298,7 +1367,7 @@ const WelfarePage = () => {
             type="info" showIcon style={{ marginBottom: 16 }}
           />
         )}
-        <Form form={enrollForm} layout="vertical" initialValues={{ is_registered_member: true, guarantor1_type: 'member', guarantor2_type: 'none', initial_paid_months: 0 }}>
+        <Form form={enrollForm} layout="vertical" onFinish={handleEnrollMember} onSubmit={(e) => e.preventDefault()} initialValues={{ is_registered_member: true, guarantor1_type: 'member', guarantor2_type: 'none', initial_paid_months: 0 }}>
           <Form.Item
             label="Is Registered Member?"
             name="is_registered_member"
@@ -1307,7 +1376,7 @@ const WelfarePage = () => {
             <Switch checkedChildren="Yes (Member)" unCheckedChildren="No (Non-Member)" />
           </Form.Item>
 
-          {Form.useWatch('is_registered_member', enrollForm) !== false ? (
+          {isRegisteredMember !== false ? (
             <Form.Item
               label="Select Member"
               name="member"
@@ -1366,7 +1435,7 @@ const WelfarePage = () => {
             </Select>
           </Form.Item>
 
-          {Form.useWatch('guarantor1_type', enrollForm) === 'non_member' ? (
+          {guarantor1Type === 'non_member' ? (
             <Row gutter={8}>
               <Col span={12}>
                 <Form.Item label="Guarantor 1 Name" name="guarantor1_non_member_name" rules={[{ required: true, message: 'Guarantor 1 name required' }]}>
@@ -1380,7 +1449,7 @@ const WelfarePage = () => {
               </Col>
             </Row>
           ) : (
-            <Form.Item label="Guarantor 1 (Member)" name="guarantor1" rules={[{ required: Form.useWatch('is_registered_member', enrollForm) === false, message: 'Guarantor 1 is required' }]}>
+            <Form.Item label="Guarantor 1 (Member)" name="guarantor1" rules={[{ required: isRegisteredMember === false, message: 'Guarantor 1 is required' }]}>
               <Select
                 showSearch
                 loading={membersLoading}
@@ -1405,7 +1474,7 @@ const WelfarePage = () => {
             </Select>
           </Form.Item>
 
-          {Form.useWatch('guarantor2_type', enrollForm) === 'non_member' && (
+          {guarantor2Type === 'non_member' && (
             <Row gutter={8}>
               <Col span={12}>
                 <Form.Item label="Guarantor 2 Name" name="guarantor2_non_member_name">
@@ -1420,7 +1489,7 @@ const WelfarePage = () => {
             </Row>
           )}
 
-          {Form.useWatch('guarantor2_type', enrollForm) === 'member' && (
+          {guarantor2Type === 'member' && (
             <Form.Item label="Guarantor 2 (Member)" name="guarantor2">
               <Select
                 showSearch
@@ -1483,7 +1552,7 @@ const WelfarePage = () => {
         width={560}
         destroyOnClose
       >
-        <Form form={editMemberForm} layout="vertical">
+        <Form form={editMemberForm} layout="vertical" onFinish={handleUpdateMember} onSubmit={(e) => e.preventDefault()}>
           <Form.Item
             label="Is Registered Member?"
             name="is_registered_member"
@@ -1492,7 +1561,7 @@ const WelfarePage = () => {
             <Switch checkedChildren="Yes (Member)" unCheckedChildren="No (Non-Member)" />
           </Form.Item>
 
-          {Form.useWatch('is_registered_member', editMemberForm) !== false ? (
+          {isRegisteredMemberEdit !== false ? (
             <Form.Item
               label="Select Member"
               name="member"
@@ -1538,7 +1607,7 @@ const WelfarePage = () => {
             </Select>
           </Form.Item>
 
-          {Form.useWatch('guarantor1_type', editMemberForm) === 'non_member' && (
+          {guarantor1TypeEdit === 'non_member' && (
             <Row gutter={8}>
               <Col span={12}>
                 <Form.Item label="Guarantor 1 Name" name="guarantor1_non_member_name">
@@ -1553,7 +1622,7 @@ const WelfarePage = () => {
             </Row>
           )}
 
-          {Form.useWatch('guarantor1_type', editMemberForm) === 'member' && (
+          {guarantor1TypeEdit === 'member' && (
             <Form.Item label="Guarantor 1 (Member)" name="guarantor1">
               <Select showSearch loading={membersLoading} filterOption={false} onSearch={(v) => loadMembersForSelect(v)} onFocus={() => members.length === 0 && loadMembersForSelect('')} placeholder="Search member..." allowClear>
                 {members.map((m) => (
@@ -1571,7 +1640,7 @@ const WelfarePage = () => {
             </Select>
           </Form.Item>
 
-          {Form.useWatch('guarantor2_type', editMemberForm) === 'non_member' && (
+          {guarantor2TypeEdit === 'non_member' && (
             <Row gutter={8}>
               <Col span={12}>
                 <Form.Item label="Guarantor 2 Name" name="guarantor2_non_member_name">
@@ -1586,7 +1655,7 @@ const WelfarePage = () => {
             </Row>
           )}
 
-          {Form.useWatch('guarantor2_type', editMemberForm) === 'member' && (
+          {guarantor2TypeEdit === 'member' && (
             <Form.Item label="Guarantor 2 (Member)" name="guarantor2">
               <Select showSearch loading={membersLoading} filterOption={false} onSearch={(v) => loadMembersForSelect(v)} onFocus={() => members.length === 0 && loadMembersForSelect('')} placeholder="Search member..." allowClear>
                 {members.map((m) => (
@@ -1642,7 +1711,7 @@ const WelfarePage = () => {
         okText="Save Scheme Changes"
         width={640}
       >
-        <Form form={editGroupForm} layout="vertical">
+        <Form form={editGroupForm} layout="vertical" onFinish={handleUpdateGroup} onSubmit={(e) => e.preventDefault()}>
           <Row gutter={16}>
             <Col xs={12}>
               <Form.Item label="Welfare No" name="group_no" rules={[{ required: true, message: 'Required' }]}>
@@ -1708,25 +1777,97 @@ const WelfarePage = () => {
         </Form>
       </Modal>
 
-      {/* Monthly Auction Modal */}
+      {/* Clear Dues Up To Month Modal */}
       <Modal
-        title={`Month ${selectedGroup?.current_month} Auction & Drawings Control Panel`}
-        open={auctionModal}
-        onCancel={() => setAuctionModal(false)}
-        onOk={handleCompleteAuction}
+        title={`Clear Welfare Dues — ${clearDuesModal.enrollment?.member_name || clearDuesModal.enrollment?.non_member_name}`}
+        open={clearDuesModal.open}
+        onCancel={() => setClearDuesModal({ open: false, enrollment: null })}
+        onOk={handleClearDuesSubmit}
         confirmLoading={submitting}
-        okText="Complete Auction & Generate Installments"
-        width={1150}
+        okText="Confirm & Pay All Dues Up To Month"
+        width={500}
         destroyOnClose
       >
-        {selectedGroup && (
+        {clearDuesModal.enrollment && selectedGroup && (
           <Alert
-            message={`Active Month: ${selectedGroup.current_month} · Value per Slot: ${formatCurrency(selectedGroup.chit_value)}`}
-            description={`Committee Commission: ${formatCurrency(selectedGroup.commission_rate || 0)} per slot. Fill the winner and caller slot details below.`}
+            message={`Scheme: ${selectedGroup.group_name} (${selectedGroup.group_no})`}
+            description={`Monthly Installment: ${formatCurrency(selectedGroup.monthly_instalment)} · Current Active Month: ${selectedGroup.current_month}`}
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
           />
+        )}
+        <Form form={clearDuesForm} layout="vertical" onFinish={handleClearDuesSubmit} onSubmit={(e) => e.preventDefault()}>
+          <Form.Item
+            label="Clear Dues Up To Month"
+            name="up_to_month"
+            rules={[{ required: true, message: 'Please select target month' }]}
+            extra="All unpaid monthly installments up to this month will be marked as paid in a single click."
+          >
+            <Select style={{ width: '100%' }}>
+              {Array.from({ length: selectedGroup?.current_month || 1 }, (_, i) => i + 1).map(m => (
+                <Option key={m} value={m}>Month {m} (Up to Month {m})</Option>
+              ))}
+            </Select>
+          </Form.Item>
+          <Form.Item
+            label="Payment Date"
+            name="paid_date"
+            rules={[{ required: true, message: 'Please select date' }]}
+          >
+            <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+          </Form.Item>
+          <Form.Item
+            label="Payment Mode"
+            name="payment_mode"
+            rules={[{ required: true, message: 'Please select payment mode' }]}
+          >
+            <Select style={{ width: '100%' }}>
+              <Option value="cash">Cash</Option>
+              <Option value="bank_transfer">Bank Transfer</Option>
+              <Option value="cheque">Cheque</Option>
+              <Option value="upi">UPI</Option>
+            </Select>
+          </Form.Item>
+          <Form.Item label="Receipt No / Ref (Optional)" name="receipt_no">
+            <Input placeholder="e.g. REC-1024" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Monthly Auction Modal */}
+      <Modal
+        title={`Month ${selectedAuctionMonth} Auction & Drawings Control Panel`}
+        open={auctionModal}
+        onCancel={() => setAuctionModal(false)}
+        onOk={handleCompleteAuction}
+        confirmLoading={submitting}
+        okText={`Save & Complete Month ${selectedAuctionMonth} Auction`}
+        width={1150}
+        destroyOnClose
+      >
+        {selectedGroup && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, background: '#1e293b', padding: '12px 16px', borderRadius: 8, border: '1px solid #334155' }}>
+            <div>
+              <Text style={{ fontWeight: 600, color: '#f8fafc' }}>Active Welfare Value: </Text>
+              <Text style={{ color: '#60a5fa', fontWeight: 700 }}>{formatCurrency(selectedGroup.chit_value)}</Text>
+              <span style={{ margin: '0 12px', color: '#475569' }}>|</span>
+              <Text style={{ fontWeight: 600, color: '#f8fafc' }}>Committee Surcharge / Commission: </Text>
+              <Text style={{ color: '#f87171', fontWeight: 700 }}>{formatCurrency(selectedGroup.commission_rate || 0)}</Text>
+            </div>
+            <Space>
+              <Text style={{ fontWeight: 600, color: '#f8fafc' }}>Select Month to Record/View:</Text>
+              <Select
+                value={selectedAuctionMonth}
+                onChange={(m) => openAuctionModal(m)}
+                style={{ width: 140 }}
+              >
+                {Array.from({ length: selectedGroup.current_month || 1 }, (_, i) => i + 1).map(m => (
+                  <Option key={m} value={m}>Month {m} {m === selectedGroup.current_month ? '(Active)' : '(Past)'}</Option>
+                ))}
+              </Select>
+            </Space>
+          </div>
         )}
 
         <div style={{ marginBottom: 16 }}>
@@ -1861,34 +2002,34 @@ const WelfarePage = () => {
         {selectedGroup && (
           <Row gutter={12} style={{ marginTop: 20 }}>
             <Col span={12}>
-              <Card size="small" style={{ background: '#f8fafc', borderColor: '#e2e8f0' }}>
-                <Text style={{ display: 'block', fontSize: 12, color: '#64748b' }}>Total Gross Bids Sum:</Text>
-                <Text style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>
+              <Card size="small" style={{ background: '#1e293b', borderColor: '#334155' }}>
+                <Text style={{ display: 'block', fontSize: 12, color: '#94a3b8' }}>Total Gross Bids Sum:</Text>
+                <Text style={{ fontSize: 16, fontWeight: 700, color: '#f8fafc' }}>
                   {formatCurrency(auctionSlots.reduce((sum, s) => sum + parseFloat(s.bid_amount || 0), 0))}
                 </Text>
                 <Divider style={{ margin: '8px 0' }} />
-                <Text style={{ display: 'block', fontSize: 12, color: '#64748b' }}>Next Month Calculated Installment:</Text>
-                <Text style={{ fontSize: 18, fontWeight: 700, color: '#2563eb' }}>
+                <Text style={{ display: 'block', fontSize: 12, color: '#94a3b8' }}>Next Month Calculated Installment:</Text>
+                <Text style={{ fontSize: 18, fontWeight: 700, color: '#60a5fa' }}>
                   {formatCurrency(
                     auctionSlots.reduce((sum, s) => sum + parseFloat(s.bid_amount || 0), 0) / selectedGroup.total_members
-                  )} <span style={{ fontSize: 12, color: '#64748b', fontWeight: 'normal' }}>per slot</span>
+                  )} <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 'normal' }}>per slot</span>
                 </Text>
               </Card>
             </Col>
             <Col span={12}>
-              <Card size="small" style={{ background: '#f0fdf4', borderColor: '#bbf7d0' }}>
-                <Text style={{ display: 'block', fontSize: 12, color: '#166534' }}>Commission Profit:</Text>
-                <Text style={{ fontSize: 14, fontWeight: 600, color: '#15803d' }}>
+              <Card size="small" style={{ background: '#022c22', borderColor: '#065f46' }}>
+                <Text style={{ display: 'block', fontSize: 12, color: '#34d399' }}>Commission Profit:</Text>
+                <Text style={{ fontSize: 14, fontWeight: 600, color: '#10b981' }}>
                   {formatCurrency(auctionSlots.reduce((sum, s) => sum + parseFloat(s.commission_amount || 0), 0))}
                 </Text>
                 <Divider style={{ margin: '8px 0' }} />
-                <Text style={{ display: 'block', fontSize: 12, color: '#166534' }}>Service Charge Profit:</Text>
-                <Text style={{ fontSize: 14, fontWeight: 600, color: '#15803d' }}>
+                <Text style={{ display: 'block', fontSize: 12, color: '#34d399' }}>Service Charge Profit:</Text>
+                <Text style={{ fontSize: 14, fontWeight: 600, color: '#10b981' }}>
                   {formatCurrency(auctionSlots.reduce((sum, s) => sum + parseFloat(s.service_charge || 0), 0))}
                 </Text>
                 <Divider style={{ margin: '8px 0' }} />
-                <Text style={{ display: 'block', fontSize: 12, color: '#166534' }}>Caller Discount Profit:</Text>
-                <Text style={{ fontSize: 14, fontWeight: 600, color: '#15803d' }}>
+                <Text style={{ display: 'block', fontSize: 12, color: '#34d399' }}>Caller Discount Profit:</Text>
+                <Text style={{ fontSize: 14, fontWeight: 600, color: '#10b981' }}>
                   {formatCurrency(
                     auctionSlots.reduce((sum, s) => {
                       if (s.slot_type === 'caller') {
@@ -1899,8 +2040,8 @@ const WelfarePage = () => {
                   )}
                 </Text>
                 <Divider style={{ margin: '8px 0' }} />
-                <Text style={{ display: 'block', fontSize: 12, color: '#166534', fontWeight: 'bold' }}>Total Firm Profit This Month:</Text>
-                <Text style={{ fontSize: 18, fontWeight: 700, color: '#166534' }}>
+                <Text style={{ display: 'block', fontSize: 12, color: '#34d399', fontWeight: 'bold' }}>Total Firm Profit This Month:</Text>
+                <Text style={{ fontSize: 18, fontWeight: 700, color: '#10b981' }}>
                   {formatCurrency(
                     auctionSlots.reduce((sum, s) => sum + parseFloat(s.commission_amount || 0) + parseFloat(s.service_charge || 0), 0) +
                     auctionSlots.reduce((sum, s) => {
@@ -1931,6 +2072,8 @@ const WelfarePage = () => {
         <Form
           form={payoutForm}
           layout="vertical"
+          onFinish={handleSavePayout}
+          onSubmit={(e) => e.preventDefault()}
           onValuesChange={(changed, all) => {
             const bid = parseFloat(all.bid_amount || 0)
             const comm = parseFloat(all.commission_amount || 0)
@@ -1967,7 +2110,7 @@ const WelfarePage = () => {
         {handoverModal.enrollment && (
           <div style={{ marginBottom: 16 }}>
             <p>You are marking this welfare payout as handed over/disbursed.</p>
-            <div style={{ padding: 12, background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0', marginBottom: 16 }}>
+            <div style={{ padding: 12, background: '#1e293b', borderRadius: 6, border: '1px solid #334155', marginBottom: 16 }}>
               <div><strong>Recipient:</strong> {handoverModal.enrollment.member_name} ({handoverModal.enrollment.ticket_number})</div>
               <div><strong>Net Handover Amount:</strong> <strong style={{ color: '#10b981' }}>{formatCurrency(handoverModal.enrollment.prize_amount)}</strong></div>
             </div>
@@ -1976,6 +2119,8 @@ const WelfarePage = () => {
         <Form
           form={handoverForm}
           layout="vertical"
+          onFinish={handleHandoverSubmit}
+          onSubmit={(e) => e.preventDefault()}
         >
           <Form.Item 
             label="Handover Date" 

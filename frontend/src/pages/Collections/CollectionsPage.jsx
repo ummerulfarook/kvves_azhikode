@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   Row, Col, Card, Form, Input, InputNumber, Button, Select, DatePicker,
-  Table, Tag, Space, Tabs, Statistic, message, Divider, Typography, Modal
+  Table, Tag, Space, Tabs, Statistic, message, Divider, Typography, Modal, Radio
 } from 'antd'
 import {
   PlusOutlined, UnorderedListOutlined, BarChartOutlined, SearchOutlined
@@ -10,6 +10,7 @@ import dayjs from 'dayjs'
 import * as collectionsApi from '../../api/collections'
 import * as membersApi from '../../api/members'
 import * as curriesApi from '../../api/curries'
+import * as chitsApi from '../../api/chits'
 import { formatCurrency, formatDate } from '../../utils/formatters'
 import usePermissions from '../../hooks/usePermissions'
 
@@ -43,6 +44,11 @@ const CollectionsPage = () => {
   const [memberLoans, setMemberLoans] = useState([])
   const [memberMasavari, setMemberMasavari] = useState(null)
   const [detailsLoading, setDetailsLoading] = useState(false)
+
+  // Welfare non-members & all enrollments state
+  const [nonMemberEnrollments, setNonMemberEnrollments] = useState([])
+  const [nonMembersLoading, setNonMembersLoading] = useState(false)
+  const [welfarePayerType, setWelfarePayerType] = useState('member')
 
   // Curry-specific state (loaded independently)
   const [allCurries, setAllCurries] = useState([])
@@ -185,9 +191,45 @@ const CollectionsPage = () => {
     }
   }
 
+  const loadNonMemberEnrollments = useCallback(async () => {
+    setNonMembersLoading(true)
+    try {
+      const res = await chitsApi.getAllEnrollments()
+      const list = res.data.results || res.data || []
+      // Non-member enrollments don't have a registered member
+      setNonMemberEnrollments(list.filter(e => !e.member && (e.status === 'active' || e.status === 'awarded')))
+    } catch (_) {
+      message.error('Failed to load non-member subscribers.')
+    }
+    setNonMembersLoading(false)
+  }, [])
+
+  const handleWelfarePayerTypeChange = (type) => {
+    setWelfarePayerType(type)
+    form.setFieldsValue({ welfare_group: undefined, member: undefined, month_number: undefined, amount: undefined })
+    if (type === 'non_member' && nonMemberEnrollments.length === 0) {
+      loadNonMemberEnrollments()
+    }
+  }
+
+  const handleWelfareEnrollmentSelect = (enrollmentId) => {
+    const selected = nonMemberEnrollments.find(e => e.id === enrollmentId)
+    if (selected) {
+      form.setFieldsValue({
+        welfare_group: selected.id,
+        member: undefined,
+        month_number: selected.next_pending_month || 1,
+        amount: parseFloat(selected.monthly_instalment) || undefined,
+      })
+    }
+  }
+
   const handleCategoryChange = (val) => {
     setCategory(val)
     form.setFieldsValue({ category: val || undefined })
+    if (val === 'welfare_payment') {
+      setWelfarePayerType('member')
+    }
     autofillFields(val, selectedMember, memberWelfares, memberLoans, memberMasavari)
   }
 
@@ -464,47 +506,86 @@ const CollectionsPage = () => {
                   {entryType === 'income' && ['welfare_payment', 'loan_emi', 'masavari', 'registration_fee', 'share_capital'].includes(category) && (
                     <div style={{ background: 'var(--color-bg-hover)', padding: '16px 20px', borderRadius: 8, marginBottom: 20, border: '1px solid var(--color-border)' }}>
                       <Title level={5} style={{ marginTop: 0, marginBottom: 12 }}>Link Payment</Title>
-                      <Row gutter={16}>
-                        <Col xs={24} md={12}>
-                          <Form.Item
-                            label="Select Member"
-                            name="member"
-                            rules={[{ required: true, message: 'Select member to update' }]}
-                          >
-                            <Select
-                              showSearch
-                              loading={membersLoading}
-                              filterOption={false}
-                              onSearch={loadMembersForSelect}
-                              onFocus={() => members.length === 0 && loadMembersForSelect('')}
-                              onChange={handleMemberChange}
-                              placeholder="Type name or number to search..."
-                            >
-                              {members.map((m) => (
-                                <Option key={m.id} value={m.id}>
-                                  {m.full_name} ({m.member_no})
-                                </Option>
-                              ))}
-                            </Select>
-                          </Form.Item>
-                        </Col>
+                      
+                      {category === 'welfare_payment' && (
+                        <div style={{ marginBottom: 16 }}>
+                          <Text strong style={{ marginRight: 12 }}>Welfare Subscriber Type:</Text>
+                          <Radio.Group value={welfarePayerType} onChange={(e) => handleWelfarePayerTypeChange(e.target.value)}>
+                            <Radio value="member">Registered Member</Radio>
+                            <Radio value="non_member">Non-Member Subscriber</Radio>
+                          </Radio.Group>
+                        </div>
+                      )}
 
-                        {category === 'welfare_payment' && (
-                          <Col xs={24} md={12}>
+                      <Row gutter={16}>
+                        {category === 'welfare_payment' && welfarePayerType === 'non_member' ? (
+                          <Col xs={24} md={24}>
                             <Form.Item
-                              label="Select Welfare Group"
+                              label="Select Non-Member Subscriber & Token"
                               name="welfare_group"
-                              rules={[{ required: true, message: 'Select group' }]}
+                              rules={[{ required: true, message: 'Select subscriber/token' }]}
                             >
-                               <Select placeholder="Select welfare" loading={detailsLoading} onChange={handleWelfareGroupSelect}>
-                                 {memberWelfares.map((w) => (
-                                   <Option key={w.id} value={w.id}>
-                                     {w.group_name} ({w.group_no}) · Ticket #{w.ticket_number}
-                                   </Option>
-                                 ))}
-                               </Select>
+                              <Select
+                                placeholder="Search non-member subscriber name or token..."
+                                loading={nonMembersLoading}
+                                onChange={handleWelfareEnrollmentSelect}
+                                showSearch
+                                filterOption={(input, option) =>
+                                  (option?.children ?? '').toLowerCase().includes(input.toLowerCase())
+                                }
+                              >
+                                {nonMemberEnrollments.map((e) => (
+                                  <Option key={e.id} value={e.id}>
+                                    {e.non_member_name} (Token #{e.ticket_number}) · {e.group_name} ({e.group_no})
+                                  </Option>
+                                ))}
+                              </Select>
                             </Form.Item>
                           </Col>
+                        ) : (
+                          <>
+                            <Col xs={24} md={12}>
+                              <Form.Item
+                                label="Select Member"
+                                name="member"
+                                rules={[{ required: true, message: 'Select member to update' }]}
+                              >
+                                <Select
+                                  showSearch
+                                  loading={membersLoading}
+                                  filterOption={false}
+                                  onSearch={loadMembersForSelect}
+                                  onFocus={() => members.length === 0 && loadMembersForSelect('')}
+                                  onChange={handleMemberChange}
+                                  placeholder="Type name or number to search..."
+                                >
+                                  {members.map((m) => (
+                                    <Option key={m.id} value={m.id}>
+                                      {m.full_name} ({m.member_no})
+                                    </Option>
+                                  ))}
+                                </Select>
+                              </Form.Item>
+                            </Col>
+
+                            {category === 'welfare_payment' && (
+                              <Col xs={24} md={12}>
+                                <Form.Item
+                                  label="Select Welfare Group / Token"
+                                  name="welfare_group"
+                                  rules={[{ required: true, message: 'Select welfare group' }]}
+                                >
+                                  <Select placeholder="Select welfare" loading={detailsLoading} onChange={handleWelfareGroupSelect}>
+                                    {memberWelfares.map((w) => (
+                                      <Option key={w.id} value={w.id}>
+                                        {w.group_name} ({w.group_no}) · Token #{w.ticket_number}
+                                      </Option>
+                                    ))}
+                                  </Select>
+                                </Form.Item>
+                              </Col>
+                            )}
+                          </>
                         )}
 
                         {category === 'loan_emi' && (

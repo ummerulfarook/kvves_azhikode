@@ -10,6 +10,7 @@ class LoanRepaymentSerializer(serializers.ModelSerializer):
     is_overdue = serializers.SerializerMethodField()
     days_overdue = serializers.SerializerMethodField()
     recorded_by_name = serializers.SerializerMethodField()
+    emi_amount = serializers.DecimalField(source='loan.emi_amount', max_digits=10, decimal_places=2, read_only=True)
 
     class Meta:
         model = LoanRepayment

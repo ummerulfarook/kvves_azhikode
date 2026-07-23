@@ -257,7 +257,8 @@ const LoansPage = () => {
           columns={[
             { title: 'EMI #', dataIndex: 'instalment_no', width: 50 },
             { title: 'Due Date', dataIndex: 'due_date', render: (v) => formatDate(v) },
-            { title: 'Instalment', dataIndex: 'amount_paid', render: (v) => formatCurrency(v) },
+            { title: 'Instalment', dataIndex: 'emi_amount', render: (v) => formatCurrency(v) },
+            { title: 'Paid Amount', dataIndex: 'amount_paid', render: (v) => formatCurrency(v) },
             { title: 'Principal', dataIndex: 'principal_paid', render: (v) => formatCurrency(v) },
             { title: 'Service Charge', dataIndex: 'interest_paid', render: (v) => formatCurrency(v) },
             { title: 'Outstanding', dataIndex: 'outstanding_after', render: (v) => formatCurrency(v) },
@@ -358,7 +359,7 @@ const LoansPage = () => {
                     )
                   },
                   { title: 'EMI #', dataIndex: 'instalment_no' },
-                  { title: 'Amount', dataIndex: 'amount_paid', render: (v) => formatCurrency(v) },
+                  { title: 'Amount', dataIndex: 'emi_amount', render: (v) => formatCurrency(v) },
                   { title: 'Due Date', dataIndex: 'due_date', render: (v) => formatDate(v) },
                   { title: 'Days Overdue', dataIndex: 'days_overdue', render: (v) => <Tag color="error">{v}d</Tag> },
                 ]}
